@@ -1,8 +1,17 @@
 // Shared filter/search matching over a graph payload, used by the D3 canvas,
 // the matrix view, and the rail lists so they always agree on what matches.
 //
-// Filter shape: { q, scope, status, timing, need }
-//  - facets (status/timing/need) always apply to streams;
+// Filter shape: { q, scope, statuses, timings, needs, systems, flow }
+//  - facets (statuses/timings/needs) are SETS of selected values; an
+//    empty/missing set means "no constraint" (matches everything). status and
+//    timing match by equality; need matches if the stream carries ANY of the
+//    selected needs.
+//  - systems is a SET of system ids. When non-empty it carves out an induced
+//    sub-graph: a stream matches only if BOTH endpoints are in the set, and a
+//    system matches iff its id is in the set. This is the "work with just
+//    these N systems" control.
+//  - flow stays single-valued: it is a focus control (drives stage overlays),
+//    not a regular facet, so only one flow is focused at a time.
 //  - the text query matches according to scope:
 //      all      — stream text (name, api, format, endpoint system/entity/field
 //                 names) or system text (name, description, catalog)
@@ -69,19 +78,30 @@ export function buildMatcher(data) {
 
   const norm = (f) => (f.q ?? "").trim().toLowerCase();
   const scopeOf = (f) => f.scope || "all";
+  // empty/missing Set = no constraint; otherwise require membership.
+  const setOk = (s, v) => !s?.size || s.has(v);
+  const setAny = (s, ids) => !s?.size || (ids ?? []).some((id) => s.has(id));
 
   return {
     entName: (id) => entName.get(id) ?? "(deleted)",
     fldName: (id) => fldName.get(id) ?? "(deleted)",
-    active: (f) => !!(norm(f) || f.status || f.timing || f.need || f.flow),
+    active: (f) => !!(norm(f) || f.flow || f.statuses?.size || f.timings?.size || f.needs?.size || f.systems?.size),
     facets: (st, f) =>
-      (!f.status || st.status === f.status) &&
-      (!f.timing || st.timing === f.timing) &&
-      (!f.need || (st.biz_need_ids ?? []).includes(f.need)) &&
+      setOk(f.statuses, st.status) &&
+      setOk(f.timings, st.timing) &&
+      setAny(f.needs, st.biz_need_ids) &&
       (!f.flow || (flowStreams.get(f.flow)?.has(st.id) ?? false)),
+    // Is this system in the chosen subset? (Empty set = no subset constraint.)
+    systemInSet(sysId, f) {
+      return !f.systems?.size || f.systems.has(sysId);
+    },
     streamMatches(st, f) {
-      const q = norm(f);
       if (!this.facets(st, f)) return false;
+      // induced sub-graph on the chosen systems: both endpoints must be in the set
+      if (f.systems?.size &&
+          !(f.systems.has(st.source.system_id) && f.systems.has(st.destination.system_id)))
+        return false;
+      const q = norm(f);
       if (!q) return true;
       return (stText.get(st.id)?.[scopeOf(f)] ?? "").includes(q);
     },
@@ -94,9 +114,13 @@ export function buildMatcher(data) {
       return (sysText.get(sysId)?.[scope] ?? "").includes(q);
     },
     // A system "matches" if it matches the query directly or any of its
-    // streams (facet-checked) matches.
+    // streams (facet-checked) matches. The systems subset, when active, is an
+    // explicit visibility gate: in = visible, out = not matched — so picking
+    // 5 of 30 systems shows exactly those 5, with the others dimmed/hidden per
+    // the Dim/Hide mode. Other facets still filter the streams among them.
     systemMatches(sys, f, streams) {
       if (!this.active(f)) return true;
+      if (f.systems?.size) return this.systemInSet(sys.id, f);
       if (this.systemDirect(sys.id, f)) return true;
       return streams.some((st) =>
         (st.source.system_id === sys.id || st.destination.system_id === sys.id) &&

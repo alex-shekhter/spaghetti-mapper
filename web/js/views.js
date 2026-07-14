@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { createGraph } from "./graph.js";
 import { FilteredView } from "./view.js";
 import { analyze, flowShape, flowImpliedNeeds, deriveStages } from "./analysis.js";
-import { Dropdown } from "./ui.js";
+import { Dropdown, MultiDropdown } from "./ui.js";
 
 const van = window.van;
 const {
@@ -616,14 +616,71 @@ export function Workspace(proj, { go }) {
   const tab = van.state("systems");
   const editing = van.state(null); // {kind} | {kind, item}
   const selection = van.state(null); // {type:'edge'|'node'|'analysis', ...}
-  const filters = { q: van.state(""), scope: van.state("all"), status: van.state(""), timing: van.state(""), need: van.state(""), flow: van.state("") };
+
+  // ---- resizable drawers ----
+  // widths live in state so van re-renders the pane reactively; the canvas
+  // is the flexible middle pane (flex:1; min-width:0) and absorbs the gap,
+  // so widening either drawer automatically shrinks it.
+  const RAIL_MIN = 220, RAIL_MAX = 520, RAIL_DEFAULT = 320;
+  const INSP_MIN = 260, INSP_MAX = 620, INSP_DEFAULT = 340;
+  const MIN_CANVAS = 240;
+  const loadInt = (k, d) => { const v = +localStorage.getItem(k); return Number.isFinite(v) && v ? v : d; };
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const railWidth = van.state(loadInt("sm.railW", RAIL_DEFAULT));
+  const inspWidth = van.state(loadInt("sm.inspW", INSP_DEFAULT));
+  // clamp loaded widths to the current viewport so a saved 520px rail
+  // can't overflow a small window on reload.
+  const vw0 = window.innerWidth;
+  railWidth.val = clamp(railWidth.val, RAIL_MIN, Math.min(RAIL_MAX, vw0 - MIN_CANVAS - inspWidth.val));
+  inspWidth.val = clamp(inspWidth.val, INSP_MIN, Math.min(INSP_MAX, vw0 - MIN_CANVAS - railWidth.val));
+
+  // reusable horizontal drag resizer. `side` is 'resizer--rail' (left) or
+  // 'resizer--insp' (right); for the left rail dx adds, for the right
+  // inspector dx subtracts. Double-click resets to the default width.
+  const otherWidth = (side) => (side === "resizer--rail" ? inspWidth : railWidth);
+  const limits = (side) => (side === "resizer--rail" ? [RAIL_MIN, RAIL_MAX] : [INSP_MIN, INSP_MAX]);
+  const makeResizer = (state, side, key) =>
+    div({
+      class: "resizer resizer--h " + side,
+      onmousedown: (e) => {
+        e.preventDefault();
+        const startX = e.clientX, startW = state.val;
+        document.body.classList.add("resizing");
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          const [lo, hi] = limits(side);
+          const raw = side === "resizer--rail" ? startW + dx : startW - dx;
+          state.val = clamp(raw, lo, Math.min(hi, window.innerWidth - MIN_CANVAS - otherWidth(side).val));
+        };
+        const up = () => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+          document.body.classList.remove("resizing");
+          localStorage.setItem(key, state.val);
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+      },
+      ondblclick: () => { state.val = side === "resizer--rail" ? RAIL_DEFAULT : INSP_DEFAULT; localStorage.setItem(key, state.val); },
+    });
+  const filters = {
+    q: van.state(""), scope: van.state("all"),
+    statuses: van.state(new Set()), timings: van.state(new Set()),
+    needs: van.state(new Set()), systems: van.state(new Set()),
+    flow: van.state(""),
+  };
   const mode = van.state("dim");
   const view = van.state("graph"); // graph | matrix
 
   const reload = () => busy(async () => (data.val = await api.graph(proj)));
   reload();
 
-  const filterVals = () => ({ q: filters.q.val, scope: filters.scope.val, status: filters.status.val, timing: filters.timing.val, need: filters.need.val, flow: filters.flow.val });
+  const filterVals = () => ({
+    q: filters.q.val, scope: filters.scope.val,
+    statuses: filters.statuses.val, timings: filters.timings.val,
+    needs: filters.needs.val, systems: filters.systems.val,
+    flow: filters.flow.val,
+  });
   // THE filtering entry point: every surface builds its view here and asks
   // it what is visible — filter semantics live in FilteredView alone.
   const filteredView = () => new FilteredView(data.val, filterVals(), mode.val);
@@ -1097,13 +1154,27 @@ export function Workspace(proj, { go }) {
       ];
     }
 
-    return div({ class: "inspector" },
+    return div({
+      class: "inspector",
+      style: () => `width:${inspWidth.val}px;flex:none`,
+    },
       div({ class: "inspector-head" },
         h3(title), span({ class: "sub" }, sub),
         button({ class: "btn ghost small", onclick: () => (selection.val = null) }, "✕"),
       ),
       div({ class: "inspector-body" }, body),
     );
+  };
+
+  // right resize handle — its own binding so it lives as a separate flex
+  // child of .body-split (between canvas and inspector). It appears only
+  // when the inspector is open and disappears exactly when it closes,
+  // preserving the existing open/close/Esc behavior unchanged.
+  const inspectorHandle = () => {
+    const sel = selection.val;
+    const d = data.val;
+    if (!sel || !d) return span({ style: "display:none" });
+    return makeResizer(inspWidth, "resizer--insp", "sm.inspW");
   };
 
   // ---- topbar ----
@@ -1127,6 +1198,12 @@ export function Workspace(proj, { go }) {
       options: () => [["", `${labelTxt}: all`], ...opts()],
     });
 
+  // Multi-select facet: bound to a Set-valued state. Empty set reads "all",
+  // a non-empty set turns the chip amber. `searchable` adds a row filter for
+  // long lists (systems, possibly needs).
+  const multiFilterSelect = (state, labelTxt, opts, searchable = false) =>
+    MultiDropdown({ state, title: labelTxt, options: opts, searchable });
+
   const topbar = () =>
     div({ class: "topbar" },
       a({ class: "brand-mini", href: "#/" }, logoSVG(22), "SpaghettiMapper"),
@@ -1136,9 +1213,13 @@ export function Workspace(proj, { go }) {
         span({ class: "flabel" }, "Filter"),
         searchBox,
         scopeSelect,
-        filterSelect(filters.status, "Status", () => [["planned", "planned"], ["implemented", "implemented"], ["unknown", "unknown"]]),
-        filterSelect(filters.timing, "Timing", () => [["real-time", "real-time"], ["scheduled", "scheduled"]]),
-        filterSelect(filters.need, "Need", () => (data.val?.needs ?? []).map((n) => [n.id, n.name])),
+        MultiDropdown({
+          state: filters.systems, title: "Systems", searchable: true,
+          options: () => (data.val?.systems ?? []).map((s) => [s.id, s.name]),
+        }),
+        multiFilterSelect(filters.statuses, "Status", () => [["planned", "planned"], ["implemented", "implemented"], ["unknown", "unknown"]]),
+        multiFilterSelect(filters.timings, "Timing", () => [["real-time", "real-time"], ["scheduled", "scheduled"]]),
+        multiFilterSelect(filters.needs, "Need", () => (data.val?.needs ?? []).map((n) => [n.id, n.name]), true),
         filterSelect(filters.flow, "Flow", () => (data.val?.flows ?? []).map((fl) => [fl.id, fl.name])),
         div({ class: "mode-toggle", title: "How unmatched items are treated: dimmed in place, or removed from the map" },
           button({ class: () => (mode.val === "dim" ? "active" : ""), onclick: () => (mode.val = "dim") }, "Dim"),
@@ -1170,14 +1251,19 @@ export function Workspace(proj, { go }) {
   return div({ class: "workspace" },
     topbar,
     div({ class: "body-split" },
-      div({ class: "rail" },
+      div({
+        class: "rail",
+        style: () => `width:${railWidth.val}px;flex:none`,
+      },
         div({ class: "rail-tabs" },
           ["systems", "streams", "needs", "flows"].map((t) =>
             button({ class: () => (tab.val === t ? "active" : ""), onclick: () => { tab.val = t; } }, t)),
         ),
         div({ class: "rail-body" }, railBody),
       ),
+      makeResizer(railWidth, "resizer--rail", "sm.railW"),
       canvasEl,
+      inspectorHandle,
       inspector,
     ),
   );

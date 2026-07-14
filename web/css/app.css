@@ -206,7 +206,7 @@ label.field > span {
 
 /* ---- left management rail ---- */
 .rail {
-  width: 320px; flex: none;
+  flex: none;
   background: var(--panel); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; min-height: 0;
 }
@@ -368,6 +368,43 @@ label.field > span {
 .fld-row .dd-btn { padding: 3px 7px; font-size: 12.5px; }
 .fld-row .dd.editable .dd-input { padding: 3px 7px; font-size: 12.5px; }
 
+/* ---- multi-select dropdown (facets: Systems / Status / Timing / Need) ---- */
+.dd-multi .dd-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.dd-multi .dd-btn.active .dd-caret { color: var(--accent); }
+.dd-multi-panel { padding: 0; min-width: 200px; }
+.dd-multi-panel .dd-search {
+  width: 100%; padding: 6px 9px; font-size: 12.5px;
+  border: 0; border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+.dd-multi-panel .dd-search:focus { outline: none; }
+.dd-multi-list { max-height: 220px; overflow-y: auto; padding: 4px; }
+.dd-multi-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 9px; text-align: left; white-space: nowrap;
+  background: transparent; border: 0; border-radius: 6px;
+  color: var(--ink-2); font-size: 12.5px; cursor: pointer;
+}
+.dd-multi-opt:hover { background: var(--raised); color: var(--ink); }
+.dd-multi-opt.selected { color: var(--ink); font-weight: 600; }
+.dd-box {
+  width: 13px; height: 13px; flex: none;
+  border: 1px solid var(--line-strong); border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--page); font-size: 10px; line-height: 1;
+}
+.dd-multi-opt.selected .dd-box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.dd-multi-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dd-foot {
+  display: flex; gap: 6px; padding: 6px;
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.dd-foot .btn { flex: 1; justify-content: center; padding: 4px 6px; font-size: 11.5px; }
+
 .shown-note { color: var(--ink-3); font-size: 11.5px; margin-bottom: 8px; text-align: center; }
 
 /* ---- entity needs picker ---- */
@@ -496,7 +533,7 @@ input.stage-num::-webkit-outer-spin-button { -webkit-appearance: none; }
 
 /* ---- inspector (drill-down sidebar) ---- */
 .inspector {
-  width: 340px; flex: none;
+  flex: none;
   background: var(--panel); border-left: 1px solid var(--line);
   display: flex; flex-direction: column; min-height: 0;
 }
@@ -527,11 +564,35 @@ input.stage-num::-webkit-outer-spin-button { -webkit-appearance: none; }
 }
 .flow-line .arrow { color: var(--accent); font-family: var(--mono); }
 
+/* ---- resize handles (between rail/canvas and canvas/inspector) ---- */
+.resizer {
+  flex: none; width: 6px; cursor: col-resize;
+  position: relative; z-index: 5;
+  transition: background .12s;
+}
+/* LEFT handle: always visible as a persistent grab bar */
+.resizer--rail {
+  background: var(--line-strong);
+}
+.resizer--rail:hover, .resizer--rail:active { background: var(--accent); }
+.resizer--rail::after {
+  content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:2px; height:18px; border-radius:2px;
+  background: var(--ink-3); opacity:.5;
+}
+/* RIGHT handle: low-profile, visible only on hover/drag */
+.resizer--insp { background: transparent; }
+.resizer--insp:hover, .resizer--insp:active { background: var(--line-strong); }
+.resizer::before { /* enlarge the hit target beyond the visible bar */
+  content:""; position:absolute; inset:0 -3px;
+}
+body.resizing { user-select: none; cursor: col-resize; }
+body.resizing .canvas-wrap svg { pointer-events: none; } /* keep graph from stealing events while dragging */
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
 
 @media (max-width: 900px) {
-  .rail { width: 260px; }
-  .inspector { width: 290px; }
+  .resizer--insp { display: none; } /* keep right handle off on small screens; left stays (always visible by spec) */
 }

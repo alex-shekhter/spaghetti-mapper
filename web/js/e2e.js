@@ -113,10 +113,59 @@ if (new URLSearchParams(location.search).has("e2e")) {
     ok("inspector lists 3 strand cards", document.querySelectorAll(".strand-card").length === 3);
     ok("inspector resolves catalog entity names", document.querySelector(".inspector-body").textContent.includes("SalesOrder"));
 
+    // resizable drawers: left handle always present, right handle only when open
+    ok("left resize handle always visible", !!document.querySelector(".resizer--rail"));
+    ok("right resize handle appears when inspector opens", !!document.querySelector(".resizer--insp"));
+    ok("handle DOM order: rail handle < canvas < insp handle < inspector", (() => {
+      const kids = [...document.querySelector(".body-split").children];
+      const idx = (sel) => kids.findIndex((e) => e.classList && e.classList.contains(sel));
+      return idx("resizer--rail") < idx("canvas-wrap") && idx("canvas-wrap") < idx("resizer--insp") && idx("resizer--insp") < idx("inspector");
+    })());
+
+    const numW = (el) => +getComputedStyle(el).width.replace("px", "");
+    const dragHandle = (sel, dx) => {
+      const h = document.querySelector(sel);
+      const r = h.getBoundingClientRect();
+      h.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: r.left + 3, clientY: r.top + 10 }));
+      window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: r.left + 3 + dx, clientY: r.top + 10 }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: r.left + 3 + dx, clientY: r.top + 10 }));
+    };
+
+    // reset to defaults first so the deltas are deterministic even if a
+    // previous run left a non-default width in localStorage
+    document.querySelector(".resizer--rail").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    document.querySelector(".resizer--insp").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await sleep(150);
+
+    // dragging the LEFT handle rightward widens the rail and shrinks the canvas
+    const railBefore = numW(document.querySelector(".rail"));
+    const canvasBefore = numW(document.querySelector(".canvas-wrap"));
+    dragHandle(".resizer--rail", 60);
+    await sleep(150);
+    const railAfter = numW(document.querySelector(".rail"));
+    const canvasAfter = numW(document.querySelector(".canvas-wrap"));
+    ok("dragging left handle widens the rail ~60px", railAfter - railBefore >= 55 && railAfter - railBefore <= 65);
+    ok("dragging left handle shrinks the canvas", canvasAfter < canvasBefore - 50);
+    ok("resizing class cleaned up after drag", !document.body.classList.contains("resizing"));
+    // reset to default so repeated runs stay hermetic
+    document.querySelector(".resizer--rail").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await sleep(120);
+
+    // dragging the RIGHT handle rightward narrows the inspector (its left edge moves right)
+    const inspBefore = numW(document.querySelector(".inspector"));
+    dragHandle(".resizer--insp", 60);
+    await sleep(150);
+    const inspAfter = numW(document.querySelector(".inspector"));
+    ok("dragging right handle narrows the inspector ~60px", inspBefore - inspAfter >= 55 && inspBefore - inspAfter <= 65);
+    document.querySelector(".resizer--insp").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await sleep(120);
+
     // Esc closes inspector
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(200);
     ok("Esc closes inspector", !document.querySelector(".inspector"));
+    ok("right resize handle gone when inspector closes", !document.querySelector(".resizer--insp"));
+    ok("left resize handle still visible after inspector closes", !!document.querySelector(".resizer--rail"));
 
     // node click
     document.querySelector("g.node circle.body")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

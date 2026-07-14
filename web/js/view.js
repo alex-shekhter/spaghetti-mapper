@@ -57,7 +57,7 @@ export class FilteredView {
     const q = (this.filters.q ?? "").trim().toLowerCase();
     if (q && (this.filters.scope || "all") === "all" &&
         (fl.name + " " + (fl.description ?? "")).toLowerCase().includes(q)) return true;
-    if (this.filters.need && (fl.biz_need_ids ?? []).includes(this.filters.need)) return true;
+    if (this.filters.needs?.size && (fl.biz_need_ids ?? []).some((id) => this.filters.needs.has(id))) return true;
     return (fl.steps ?? []).some((sp) => {
       const st = this.data.streams.find((s) => s.id === sp.stream_id);
       return st && this.streamVisible(st);
@@ -107,6 +107,15 @@ export class FilteredView {
     return this._stages?.get(streamId) ?? null;
   }
 
+  // ---- chosen system subset ----
+
+  // The systems the user explicitly picked (empty when the facet is inactive).
+  // Surfaces can use this to show a "focused on N systems" affordance.
+  selectedSystems() {
+    const s = this.filters.systems;
+    return s?.size ? this.data.systems.filter((sys) => s.has(sys.id)) : [];
+  }
+
   // ---- catalog name resolution (delegated so surfaces need only the view) ----
 
   entName(id) { return this.M.entName(id); }
@@ -115,9 +124,13 @@ export class FilteredView {
   // ---- UI wording for partitioned sections ----
 
   scopeLabels() {
+    // flowOnly = the focused flow is the ONLY active constraint. We do NOT
+    // test !this.filters.flow here: focusedFlow only exists when flow is set,
+    // so testing it would make this condition always false.
     const flowOnly = this.focusedFlow &&
-      !(this.filters.q ?? "").trim() && !this.filters.status &&
-      !this.filters.timing && !this.filters.need;
+      !(this.filters.q ?? "").trim() &&
+      !this.filters.statuses?.size && !this.filters.timings?.size &&
+      !this.filters.needs?.size && !this.filters.systems?.size;
     return flowOnly
       ? { matched: `In "${this.focusedFlow.name}"`, rest: (n) => `Not in this flow (${n})` }
       : { matched: "Matching the filter", rest: (n) => `Not matching the filter (${n})` };

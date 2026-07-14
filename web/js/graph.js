@@ -123,7 +123,7 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
   let flowRowsCache = []; // hops of the focused flow, resolved to links
   let lastData = null;
   let V = null; // FilteredView — the one source of "what is visible"
-  let filters = { q: "", status: "", timing: "", need: "" };
+  let filters = { q: "", scope: "all", statuses: new Set(), timings: new Set(), needs: new Set(), systems: new Set(), flow: "" };
   let mode = "dim";
   let selection = null;
   const posCache = new Map(); // node id -> {x, y, fx, fy}
