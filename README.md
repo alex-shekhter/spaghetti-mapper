@@ -6,6 +6,8 @@ a folder of human-readable JSON files.
 
 ![stack](https://img.shields.io/badge/stack-Go%20%C2%B7%20VanJS%20%C2%B7%20D3-informational)
 
+![Example](screenshots/example.png)
+
 ## Quick start
 
 ```sh
