@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { createGraph } from "./graph.js";
 import { FilteredView } from "./view.js";
 import { analyze, flowShape, flowImpliedNeeds, deriveStages } from "./analysis.js";
-import { Dropdown, MultiDropdown } from "./ui.js";
+import { Dropdown, MultiDropdown, placePanel } from "./ui.js";
 
 const van = window.van;
 const {
@@ -671,9 +671,31 @@ export function Workspace(proj, { go }) {
   };
   const mode = van.state("dim");
   const view = van.state("graph"); // graph | matrix
+  const expand = van.state(false); // Bundle (aggregated strands) vs Expand (one curve per stream)
+  const fanSpacing = van.state(34); // px between parallel strands in Expand mode (per-project pref)
+  const showProject = van.state(false); // Project panel drawer open?
 
-  const reload = () => busy(async () => (data.val = await api.graph(proj)));
+  const reload = () => busy(async () => {
+    const g = await api.graph(proj);
+    // seed per-project display prefs once, from the saved display.json (via
+    // the graph payload). Don't clobber the user's in-session choice on later
+    // reloads (e.g. after editing a system).
+    if (!data.val) {
+      expand.val = !!g.display?.expand;
+      fanSpacing.val = g.display?.fan_spacing ? Math.max(12, Math.min(80, g.display.fan_spacing)) : 34;
+    }
+    data.val = g;
+  });
   reload();
+
+  // Persist display prefs (debounced) — mirrors layout save.
+  let displayTimer = null;
+  const saveDisplay = () => {
+    clearTimeout(displayTimer);
+    displayTimer = setTimeout(() =>
+      api.saveDisplay(proj, { expand: expand.val, fan_spacing: fanSpacing.val }).catch(() => {}),
+      500);
+  };
 
   const filterVals = () => ({
     q: filters.q.val, scope: filters.scope.val,
@@ -702,6 +724,11 @@ export function Workspace(proj, { go }) {
     graph.setFilter(filterVals(), mode.val);
   });
   van.derive(() => graph.setSelection(selection.val));
+  van.derive(() => graph.setExpand(expand.val));
+  van.derive(() => graph.setFanSpacing(fanSpacing.val));
+  // Persist display prefs whenever they change (debounced).
+  van.derive(() => { expand.val; saveDisplay(); });
+  van.derive(() => { fanSpacing.val; saveDisplay(); });
 
   // ---- matrix view (same data, same FilteredView, different lens) ----
   const matrixView = () => {
@@ -748,7 +775,7 @@ export function Workspace(proj, { go }) {
   // Esc closes the inspector (one live handler across route changes)
   if (window._smKeyHandler) document.removeEventListener("keydown", window._smKeyHandler);
   window._smKeyHandler = (e) => {
-    if (e.key === "Escape") selection.val = null;
+    if (e.key === "Escape") { selection.val = null; showProject.val = false; }
   };
   document.addEventListener("keydown", window._smKeyHandler);
 
@@ -1204,10 +1231,95 @@ export function Workspace(proj, { go }) {
   const multiFilterSelect = (state, labelTxt, opts, searchable = false) =>
     MultiDropdown({ state, title: labelTxt, options: opts, searchable });
 
+  // ---- canvas toolbar ----
+  // A slim row above the canvas holding the live view controls: lens
+  // (Graph/Matrix), how unmatched items are treated (Dim/Hide), and edge
+  // rendering (Bundle/Expand). These are switch-while-working controls, so
+  // they stay one click away here rather than buried in the project drawer.
+  // The drawer keeps the *persisted* Bundle/Expand + spacing defaults; this
+  // row binds to the same state, so toggling here updates the project too.
+  const ctoolGroup = (label, title, opts) =>
+    div({ class: "ctool", title },
+      span({ class: "ctool-label" }, label),
+      div({ class: "mode-toggle" },
+        opts.map(([txt, active, onClick]) =>
+          button({ class: () => active() ? "active" : "", onclick: onClick }, txt)),
+      ),
+    );
+
+  const canvasToolbar = () =>
+    div({ class: "canvas-toolbar" },
+      ctoolGroup("Lens", "Lens: force-directed map or system×system matrix", [
+        ["Graph", () => view.val === "graph", () => (view.val = "graph")],
+        ["Matrix", () => view.val === "matrix", () => (view.val = "matrix")],
+      ]),
+      ctoolGroup("Unmatched", "How unmatched items are treated: dimmed in place, or removed from the map", [
+        ["Dim", () => mode.val === "dim", () => (mode.val = "dim")],
+        ["Hide", () => mode.val === "hide", () => (mode.val = "hide")],
+      ]),
+      ctoolGroup("Edges", "Edges: one aggregated strand per connection (width = stream count), or one curve per stream fanned out parallel — handy for busy connections and flow focus", [
+        ["Bundle", () => !expand.val, () => (expand.val = false)],
+        ["Expand", () => expand.val, () => (expand.val = true)],
+      ]),
+    );
+
+  // ---- export menu ----
+  // Folds the infrequent SVG / JSON downloads behind one button so the
+  // topbar's primary cluster is brand + project + filters + Analysis, and
+  // the export actions never wrap loose onto a second line. The panel uses
+  // the same viewport-aware placement as the filter dropdowns.
+  const exportMenu = (() => {
+    const open = van.state(false);
+    let root, btn, panel;
+    const close = () => {
+      open.val = false;
+      document.removeEventListener("mousedown", onOutside, true);
+      window.removeEventListener("resize", reposition);
+    };
+    const onOutside = (e) => { if (!root.contains(e.target) && !panel.contains(e.target)) close(); };
+    const reposition = () => { if (open.val) placePanel(panel, root); };
+    const toggle = () => {
+      if (open.val) { close(); return; }
+      open.val = true;
+      document.addEventListener("mousedown", onOutside, true);
+      window.addEventListener("resize", reposition);
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (open.val) placePanel(panel, root); }));
+    };
+    const doSVG = () => { close(); graph.exportSVG(`${proj}-map`); };
+    const doJSON = () => {
+      close();
+      const a = document.createElement("a");
+      a.href = api.exportURL(proj);
+      a.download = `${proj}.spaghetti.json`;
+      a.click();
+    };
+    const onKeys = (e) => {
+      if (e.key === "Escape" && open.val) { e.stopPropagation(); e.preventDefault(); close(); btn.focus(); }
+      if ((e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") && !open.val) { e.preventDefault(); toggle(); }
+    };
+    btn = button({
+      type: "button", class: "btn export-btn", title: "Download the map as an SVG image or the whole project as a shareable JSON file",
+      onclick: toggle, onkeydown: onKeys,
+    }, "Export", span({ class: "proj-caret" }, "▾"));
+    panel = div(
+      { class: "dd-panel export-panel", style: () => (open.val ? "" : "display:none"), onkeydown: onKeys },
+      button({ type: "button", class: "dd-opt", onclick: doSVG },
+        span({ class: "dd-check" }, "▦"), span("SVG image")),
+      button({ type: "button", class: "dd-opt", onclick: doJSON },
+        span({ class: "dd-check" }, "{}"), span("Project JSON")),
+    );
+    root = div({ class: "dd export-dd", "data-dd": "Export" }, btn, panel);
+    return root;
+  })();
+
   const topbar = () =>
     div({ class: "topbar" },
       a({ class: "brand-mini", href: "#/" }, logoSVG(22), "SpaghettiMapper"),
-      span({ class: "proj-name" }, proj),
+      button({
+        class: () => "proj-name" + (showProject.val ? " active" : ""),
+        title: "Project settings — description and canvas display preferences",
+        onclick: () => (showProject.val = !showProject.val),
+      }, proj, span({ class: "proj-caret" }, "▾")),
       span({ class: "spacer" }),
       div({ class: "filters" },
         span({ class: "flabel" }, "Filter"),
@@ -1221,31 +1333,64 @@ export function Workspace(proj, { go }) {
         multiFilterSelect(filters.timings, "Timing", () => [["real-time", "real-time"], ["scheduled", "scheduled"]]),
         multiFilterSelect(filters.needs, "Need", () => (data.val?.needs ?? []).map((n) => [n.id, n.name]), true),
         filterSelect(filters.flow, "Flow", () => (data.val?.flows ?? []).map((fl) => [fl.id, fl.name])),
-        div({ class: "mode-toggle", title: "How unmatched items are treated: dimmed in place, or removed from the map" },
-          button({ class: () => (mode.val === "dim" ? "active" : ""), onclick: () => (mode.val = "dim") }, "Dim"),
-          button({ class: () => (mode.val === "hide" ? "active" : ""), onclick: () => (mode.val = "hide") }, "Hide"),
-        ),
-        div({ class: "mode-toggle", title: "Lens: force-directed map or system×system matrix" },
-          button({ class: () => (view.val === "graph" ? "active" : ""), onclick: () => (view.val = "graph") }, "Graph"),
-          button({ class: () => (view.val === "matrix" ? "active" : ""), onclick: () => (view.val = "matrix") }, "Matrix"),
-        ),
       ),
       button({
         class: () => "btn" + (selection.val?.type === "analysis" ? " primary" : ""),
         title: "Coverage stats and unjustified data in motion",
         onclick: () => (selection.val = selection.val?.type === "analysis" ? null : { type: "analysis" }),
       }, "Analysis"),
-      button({ class: "btn", title: "Download the map as an SVG image", onclick: () => graph.exportSVG(`${proj}-map`) }, "SVG"),
-      button({
-        class: "btn", title: "Download the whole project as a shareable JSON file",
-        onclick: () => {
-          const a = document.createElement("a");
-          a.href = api.exportURL(proj);
-          a.download = `${proj}.spaghetti.json`;
-          a.click();
-        },
-      }, "JSON"),
+      exportMenu,
     );
+
+  // ---- project panel (drawer) ----
+  // A left-side drawer overlaying the rail; the canvas stays visible to the
+  // right so the fan-spacing slider previews live. Holds project metadata
+  // plus the per-project canvas display prefs (Bundle/Expand + spacing).
+  const saveDescription = (description) => busy(async () => {
+    await api.projects.update(proj, { name: proj, description: description.trim() });
+    toast("Project saved");
+    reload();
+  });
+
+  const projectPanel = () => {
+    if (!showProject.val || !data.val) return span({ style: "display:none" });
+    try {
+      const pr = data.val.project;
+      return div({ class: "project-drawer-overlay", onclick: (e) => { if (e.target.classList?.contains("project-drawer-overlay")) showProject.val = false; } },
+        div({ class: "project-drawer", role: "dialog", "aria-label": "Project settings" },
+          div({ class: "project-drawer-head" },
+            h3("Project"),
+            button({ class: "btn ghost small", title: "Close", onclick: () => (showProject.val = false) }, "✕"),
+          ),
+          div({ class: "inspector-body" },
+            field("Name", input({ type: "text", value: pr.name, disabled: true, title: "Rename via the project folder on disk" })),
+            field("Description", input({
+              type: "text", value: pr.description ?? "",
+              placeholder: "What map is this?",
+              onchange: (e) => saveDescription(e.target.value),
+            })),
+            div({ class: "analysis-section", style: "margin-top:14px" },
+              h5("Canvas"),
+              field("Edges", div({ class: "mode-toggle", title: "Bundle: one aggregated strand per connection (width = stream count). Expand: one curve per stream, fanned out parallel." },
+                button({ class: () => (expand.val ? "" : "active"), onclick: () => (expand.val = false) }, "Bundle"),
+                button({ class: () => (expand.val ? "active" : ""), onclick: () => (expand.val = true) }, "Expand"),
+              )),
+              field("Arc spacing", div({ class: "fan-spacing", title: "Gap between parallel strands in Expand mode" },
+                input({
+                  type: "range", min: "12", max: "80", step: "2", value: fanSpacing.val,
+                  oninput: (e) => (fanSpacing.val = +e.target.value),
+                }),
+                span({ class: "fan-spacing-val" }, () => `${fanSpacing.val}px`),
+              )),
+              p({ class: "cl-empty", style: "margin-top:6px" }, "The Bundle/Expand choice and arc spacing are saved per project and travel with exports."),
+            ),
+          ),
+        ),
+      );
+    } catch (err) {
+      return div({ class: "project-drawer", style: "padding:14px;color:#e0623c" }, "PANEL ERR: " + (err && (err.stack || err.message)) + " | " + String(err));
+    }
+  };
 
   // ---- assemble ----
   return div({ class: "workspace" },
@@ -1262,9 +1407,10 @@ export function Workspace(proj, { go }) {
         div({ class: "rail-body" }, railBody),
       ),
       makeResizer(railWidth, "resizer--rail", "sm.railW"),
-      canvasEl,
+      div({ class: "canvas-col" }, canvasToolbar, canvasEl),
       inspectorHandle,
       inspector,
     ),
+    projectPanel,
   );
 }

@@ -30,6 +30,7 @@ const (
 	needsFile   = "needs.json"
 	flowsFile   = "flows.json"
 	layoutFile  = "layout.json"
+	displayFile = "display.json"
 	trashDir    = ".trash"
 )
 
@@ -679,6 +680,7 @@ type Bundle struct {
 	Needs         []BizNeed          `json:"needs"`
 	Flows         []Flow             `json:"flows"`
 	Layout        map[string]NodePos `json:"layout"`
+	Display       Display            `json:"display"`
 }
 
 func (s *Store) ExportProject(name string) (Bundle, error) {
@@ -695,6 +697,7 @@ func (s *Store) ExportProject(name string) (Bundle, error) {
 		Needs:         g.Needs,
 		Flows:         g.Flows,
 		Layout:        g.Layout,
+		Display:       g.Display,
 	}, nil
 }
 
@@ -746,6 +749,7 @@ func (s *Store) ImportProject(name string, b Bundle) (Project, error) {
 		needsFile:   b.Needs,
 		flowsFile:   b.Flows,
 		layoutFile:  b.Layout,
+	displayFile: b.Display,
 	}
 	for f, v := range files {
 		if err := writeJSON(filepath.Join(dir, f), v); err != nil {
@@ -780,6 +784,28 @@ func (s *Store) SaveLayout(proj string, layout map[string]NodePos) error {
 	})
 }
 
+// ---- Display (per-project canvas preferences) ----
+
+func (s *Store) GetDisplay(proj string) (Display, error) {
+	dir, err := s.projectDir(proj)
+	if err != nil {
+		return Display{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d, err := readJSON[Display](filepath.Join(dir, displayFile))
+	if err != nil {
+		return Display{}, err
+	}
+	return d, nil
+}
+
+func (s *Store) SaveDisplay(proj string, d Display) error {
+	return s.mutateProject(proj, func(dir string) error {
+		return writeJSON(filepath.Join(dir, displayFile), d)
+	})
+}
+
 // ---- Graph ----
 
 // Graph returns everything the visualization needs in one payload.
@@ -790,6 +816,7 @@ type Graph struct {
 	Needs   []BizNeed          `json:"needs"`
 	Flows   []Flow             `json:"flows"`
 	Layout  map[string]NodePos `json:"layout"`
+	Display Display            `json:"display"`
 }
 
 func (s *Store) GetGraph(proj string) (Graph, error) {
@@ -817,5 +844,9 @@ func (s *Store) GetGraph(proj string) (Graph, error) {
 	if err != nil {
 		return Graph{}, err
 	}
-	return Graph{Project: p, Systems: systems, Streams: streams, Needs: needs, Flows: flows, Layout: layout}, nil
+	display, err := s.GetDisplay(proj)
+	if err != nil {
+		return Graph{}, err
+	}
+	return Graph{Project: p, Systems: systems, Streams: streams, Needs: needs, Flows: flows, Layout: layout, Display: display}, nil
 }

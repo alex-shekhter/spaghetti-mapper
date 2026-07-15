@@ -122,6 +122,15 @@ type NodePos struct {
 	Pinned bool    `json:"pinned"`
 }
 
+// Display holds per-project canvas display preferences (persisted in
+// display.json), so choices like the Bundle/Expand edge mode and the fan
+// spacing between parallel strands survive restarts and travel with the
+// project on export/import. Zero values mean "use defaults".
+type Display struct {
+	Expand     bool    `json:"expand"`      // true = one curve per stream (Expand), false = Bundle
+	FanSpacing float64 `json:"fan_spacing"` // px between parallel strands in Expand mode (0 = default)
+}
+
 // Enum values accepted by validation.
 var (
 	SystemTypes = []string{"internal", "external", "unknown"}

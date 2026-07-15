@@ -1,0 +1,188 @@
+{
+  "format_version": 1,
+  "project": {
+    "name": "Demo",
+    "description": "E2E smoke-test project: 5 systems, 7 streams aggregating to 5 edges, one Order-to-warehouse flow."
+  },
+  "needs": [
+    {
+      "id": "need-fulfillment",
+      "name": "Order Fulfillment",
+      "description": "Turn a placed order into a shipped package.",
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    }
+  ],
+  "systems": [
+    {
+      "id": "sys-commerce",
+      "name": "Commerce",
+      "description": "Customer-facing storefront where orders are placed.",
+      "type": "internal",
+      "entities": [
+        {
+          "id": "ent-salesorder",
+          "name": "SalesOrder",
+          "description": "A customer order and its line items.",
+          "biz_need_ids": ["need-fulfillment"],
+          "fields": [
+            { "id": "fld-so-id", "name": "id", "type": "uuid", "unique": true, "indexed": true, "biz_need_ids": ["need-fulfillment"] },
+            { "id": "fld-so-total", "name": "total", "type": "decimal", "indexed": true, "biz_need_ids": ["need-fulfillment"] },
+            { "id": "fld-so-status", "name": "status", "type": "string", "biz_need_ids": [] },
+            { "id": "fld-so-lineitems", "name": "line_items", "biz_need_ids": [] }
+          ],
+          "provenance": { "source": "imported", "confidence": 1.0 }
+        }
+      ],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "sys-billing",
+      "name": "Billing",
+      "description": "Invoices and collects payment for orders.",
+      "type": "internal",
+      "entities": [
+        {
+          "id": "ent-invoice",
+          "name": "Invoice",
+          "description": "A billing invoice raised against an order.",
+          "fields": [
+            { "id": "fld-inv-id", "name": "id", "type": "uuid", "unique": true, "indexed": true }
+          ],
+          "provenance": { "source": "imported", "confidence": 0.9 }
+        }
+      ],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "sys-fulfillment",
+      "name": "Fulfillment",
+      "description": "Picks, packs and dispatches shipments.",
+      "type": "internal",
+      "entities": [],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "sys-crm",
+      "name": "CRM",
+      "description": "Customer master data.",
+      "type": "internal",
+      "entities": [],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "sys-wms",
+      "name": "WMS",
+      "description": "Warehouse management system (pick list consumer).",
+      "type": "internal",
+      "entities": [],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    }
+  ],
+  "streams": [
+    {
+      "id": "strm-sales-orders",
+      "name": "Sales Orders",
+      "biz_need_ids": ["need-fulfillment"],
+      "timing": "real-time",
+      "api_type": "REST",
+      "data_format": "JSON",
+      "direction": "uni",
+      "status": "planned",
+      "source":      { "system_id": "sys-commerce", "entity_ids": ["ent-salesorder"], "fields_mode": "list", "field_ids": ["fld-so-id", "fld-so-total", "fld-so-status", "fld-so-lineitems"] },
+      "destination": { "system_id": "sys-billing",  "entity_ids": ["ent-invoice"], "fields_mode": "all" },
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "strm-order-ack",
+      "name": "Order Acknowledgement",
+      "biz_need_ids": [],
+      "timing": "real-time",
+      "api_type": "REST",
+      "data_format": "JSON",
+      "direction": "uni",
+      "status": "implemented",
+      "source":      { "system_id": "sys-commerce", "entity_ids": [], "fields_mode": "unknown" },
+      "destination": { "system_id": "sys-billing",  "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 0.8 }
+    },
+    {
+      "id": "strm-invoice-posting",
+      "name": "Invoice Posting",
+      "biz_need_ids": [],
+      "timing": "scheduled",
+      "api_type": "DB-link",
+      "data_format": "CSV",
+      "direction": "uni",
+      "status": "implemented",
+      "source":      { "system_id": "sys-billing",  "entity_ids": ["ent-invoice"], "fields_mode": "all" },
+      "destination": { "system_id": "sys-commerce", "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 0.8 }
+    },
+    {
+      "id": "strm-shipment-request",
+      "name": "Shipment Request",
+      "biz_need_ids": ["need-fulfillment"],
+      "timing": "real-time",
+      "api_type": "REST",
+      "data_format": "JSON",
+      "direction": "uni",
+      "status": "planned",
+      "source":      { "system_id": "sys-billing",     "entity_ids": [], "fields_mode": "unknown" },
+      "destination": { "system_id": "sys-fulfillment", "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    },
+    {
+      "id": "strm-customer-sync",
+      "name": "Customer Sync",
+      "biz_need_ids": [],
+      "timing": "scheduled",
+      "api_type": "REST",
+      "data_format": "JSON",
+      "direction": "uni",
+      "status": "implemented",
+      "source":      { "system_id": "sys-commerce", "entity_ids": [], "fields_mode": "unknown" },
+      "destination": { "system_id": "sys-crm",      "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 0.8 }
+    },
+    {
+      "id": "strm-tracking-update",
+      "name": "Tracking Update",
+      "biz_need_ids": [],
+      "timing": "real-time",
+      "api_type": "Kafka",
+      "data_format": "JSON",
+      "direction": "uni",
+      "status": "implemented",
+      "source":      { "system_id": "sys-fulfillment", "entity_ids": [], "fields_mode": "unknown" },
+      "destination": { "system_id": "sys-crm",        "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 0.8 }
+    },
+    {
+      "id": "strm-pick-list",
+      "name": "Pick List",
+      "biz_need_ids": [],
+      "timing": "real-time",
+      "api_type": "SFTP",
+      "data_format": "CSV",
+      "direction": "uni",
+      "status": "implemented",
+      "source":      { "system_id": "sys-fulfillment", "entity_ids": [], "fields_mode": "unknown" },
+      "destination": { "system_id": "sys-wms",        "entity_ids": [], "fields_mode": "unknown" },
+      "provenance": { "source": "imported", "confidence": 0.8 }
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-otw",
+      "name": "Order to warehouse",
+      "description": "An order placed in Commerce is billed, then requested for shipment in Fulfillment.",
+      "biz_need_ids": [],
+      "steps": [
+        { "stream_id": "strm-sales-orders", "stage": 1 },
+        { "stream_id": "strm-shipment-request", "stage": 2 }
+      ],
+      "provenance": { "source": "imported", "confidence": 1.0 }
+    }
+  ],
+  "layout": {}
+}

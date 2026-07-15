@@ -28,6 +28,8 @@ export const api = {
   },
   graph: (proj) => req("GET", `/api/projects/${encodeURIComponent(proj)}/graph`),
   saveLayout: (proj, layout) => req("PUT", `/api/projects/${encodeURIComponent(proj)}/layout`, layout),
+  getDisplay: (proj) => req("GET", `/api/projects/${encodeURIComponent(proj)}/display`),
+  saveDisplay: (proj, display) => req("PUT", `/api/projects/${encodeURIComponent(proj)}/display`, display),
   exportURL: (proj) => `/api/projects/${encodeURIComponent(proj)}/export`,
   importProject: (bundle, name) => req("POST", `/api/projects/import?name=${encodeURIComponent(name)}`, bundle),
   systems: crud((p) => `/api/projects/${encodeURIComponent(p)}/systems`),

@@ -8,6 +8,13 @@ window.addEventListener("error", (ev) => {
   d.textContent = (ev.error && ev.error.stack) || ev.message;
   document.body.appendChild(d);
 });
+window.addEventListener("unhandledrejection", (ev) => {
+  const d = document.createElement("pre");
+  d.className = "js-error";
+  d.style.display = "none";
+  d.textContent = "UNHANDLED: " + ((ev.reason && (ev.reason.stack || ev.reason.message)) || ev.reason || "");
+  document.body.appendChild(d);
+});
 
 const shotMode = new URLSearchParams(location.search).get("shot");
 if (shotMode) {
@@ -65,7 +72,19 @@ if (shotMode) {
       const r = strand?.getBoundingClientRect();
       strand?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
     } else if (shotMode === "matrix") {
-      document.querySelectorAll(".filters .mode-toggle")[1].querySelectorAll("button")[1].click();
+      document.querySelectorAll(".canvas-toolbar .mode-toggle")[0].querySelectorAll("button")[1].click();
+    } else if (shotMode === "expand") {
+      // one curve per stream, fanned out parallel
+      document.querySelectorAll(".canvas-toolbar .mode-toggle")[2].querySelectorAll("button")[1].click();
+    } else if (shotMode === "expandflow") {
+      document.querySelectorAll(".canvas-toolbar .mode-toggle")[2].querySelectorAll("button")[1].click(); // Expand
+      await sleep(300);
+      document.querySelectorAll(".rail-tabs button")[3].click(); // flows tab
+      await sleep(200);
+      document.querySelector(".rail-body .entity-item .btn")?.click(); // Show first flow
+    } else if (shotMode === "project") {
+      document.querySelector(".topbar .proj-name").click();
+      await sleep(300);
     } else if (shotMode === "analysis") {
       [...document.querySelectorAll(".topbar .btn")].find((b) => b.textContent.trim() === "Analysis").click();
     } else if (shotMode === "form") {
@@ -82,6 +101,12 @@ if (new URLSearchParams(location.search).has("e2e")) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     await sleep(2500); // data load + force layout settle
+
+    // Deterministic baseline: saved per-project display prefs (Bundle/Expand,
+    // arc spacing) may persist a non-default state from a prior run. Force
+    // Bundle mode + default spacing so the early bundle-mode assertions hold.
+    document.querySelectorAll(".canvas-toolbar .mode-toggle")[2].querySelectorAll("button")[0].click(); // Bundle
+    await sleep(200);
 
     ok("rail systems list renders on cold load", document.querySelectorAll(".rail-body .entity-item").length === 5);
     ok("5 nodes rendered", document.querySelectorAll("g.node").length === 5);
@@ -119,7 +144,7 @@ if (new URLSearchParams(location.search).has("e2e")) {
     ok("handle DOM order: rail handle < canvas < insp handle < inspector", (() => {
       const kids = [...document.querySelector(".body-split").children];
       const idx = (sel) => kids.findIndex((e) => e.classList && e.classList.contains(sel));
-      return idx("resizer--rail") < idx("canvas-wrap") && idx("canvas-wrap") < idx("resizer--insp") && idx("resizer--insp") < idx("inspector");
+      return idx("resizer--rail") < idx("canvas-col") && idx("canvas-col") < idx("resizer--insp") && idx("resizer--insp") < idx("inspector");
     })());
 
     const numW = (el) => +getComputedStyle(el).width.replace("px", "");
@@ -193,14 +218,14 @@ if (new URLSearchParams(location.search).has("e2e")) {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(200);
 
-    // hide mode
-    document.querySelectorAll(".mode-toggle button")[1].click();
+    // hide mode (Unmatched group is index 1 in the canvas toolbar)
+    document.querySelectorAll(".canvas-toolbar .mode-toggle")[1].querySelectorAll("button")[1].click(); // Hide
     await sleep(500);
     ok("hide mode removes unmatched nodes from DOM", document.querySelectorAll("g.node").length === 3);
     ok("hide mode removes unmatched edges from DOM", document.querySelectorAll("g.link").length === 2);
 
     // clear facet, then text search (catalog-aware: field name "total")
-    document.querySelectorAll(".mode-toggle button")[0].click();
+    document.querySelectorAll(".canvas-toolbar .mode-toggle")[1].querySelectorAll("button")[0].click(); // Dim
     setStatus("");
     await sleep(300);
     ok("clearing filter restores full graph", document.querySelectorAll("g.node").length === 5);
@@ -245,17 +270,21 @@ if (new URLSearchParams(location.search).has("e2e")) {
       exported = { href: this.href, download: this.download };
     };
     try {
-      [...document.querySelectorAll(".topbar .btn")].find((b) => b.textContent.trim() === "SVG").click();
+      const exportOpt = (i) => {
+        document.querySelector(".topbar .export-btn").click(); // open Export menu
+        document.querySelectorAll(".export-panel .dd-opt")[i].click();
+      };
+      exportOpt(0); // SVG image
       ok("export produces a blob SVG download", !!exported && exported.href.startsWith("blob:") && exported.download.endsWith(".svg"));
       exported = null;
-      [...document.querySelectorAll(".topbar .btn")].find((b) => b.textContent.trim() === "JSON").click();
+      exportOpt(1); // Project JSON
       ok("export produces a project JSON bundle", !!exported && exported.href.includes("/export") && exported.download.endsWith(".spaghetti.json"));
     } finally {
       HTMLAnchorElement.prototype.click = realClick;
     }
 
     // matrix view
-    document.querySelectorAll(".filters .mode-toggle")[1].querySelectorAll("button")[1].click();
+    document.querySelectorAll(".canvas-toolbar .mode-toggle")[0].querySelectorAll("button")[1].click();
     await sleep(300);
     ok("matrix renders one row per system", document.querySelectorAll("table.matrix tbody tr").length === 5);
     const cell2 = [...document.querySelectorAll("table.matrix .cell")].find((c) => c.textContent === "2");
@@ -263,7 +292,7 @@ if (new URLSearchParams(location.search).has("e2e")) {
     cell2?.click();
     await sleep(300);
     ok("matrix cell click digs into the connection", document.querySelectorAll(".strand-card").length === 3);
-    document.querySelectorAll(".filters .mode-toggle")[1].querySelectorAll("button")[0].click();
+    document.querySelectorAll(".canvas-toolbar .mode-toggle")[0].querySelectorAll("button")[0].click();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(200);
 
@@ -326,6 +355,91 @@ if (new URLSearchParams(location.search).has("e2e")) {
     await sleep(300);
     ok("clearing flow facet restores the graph", lit() === 5);
     ok("count badges visible again", document.querySelector("g.badges").getAttribute("display") !== "none");
+
+    // ---- Expand mode: one curve per stream, fanned out parallel ----
+    const modeToggles = () => document.querySelectorAll(".canvas-toolbar .mode-toggle");
+    modeToggles()[2].querySelectorAll("button")[1].click(); // Expand
+    await sleep(500);
+    ok("expand renders one link per stream (7)", document.querySelectorAll("g.link").length === 7);
+    ok("expand hides count badges", !document.querySelector("g.badge"));
+    ok("expand labels every strand", document.querySelectorAll("text.elabel").length === 7);
+    ok("expand draws thin parallel strands",
+      [...document.querySelectorAll("g.link .strand")].every((p) => +p.getAttribute("stroke-width") <= 3));
+    // every expanded strand must actually have geometry (a `d`), not just exist
+    ok("expand strands all carry geometry",
+      [...document.querySelectorAll("g.link .strand")].every((p) => !!p.getAttribute("d")));
+
+    // clicking an expanded strand still opens the pair-based connection inspector
+    const pairCount = new Map();
+    for (const g of document.querySelectorAll("g.link")) {
+      const d = g.__data__;
+      const pk = d.a < d.b ? `${d.a}~${d.b}` : `${d.b}~${d.a}`;
+      pairCount.set(pk, (pairCount.get(pk) ?? 0) + 1);
+    }
+    const triplePk = [...pairCount.entries()].find(([, n]) => n === 3)?.[0];
+    const tripleLink = [...document.querySelectorAll("g.link")].find((g) => {
+      const d = g.__data__;
+      const pk = d.a < d.b ? `${d.a}~${d.b}` : `${d.b}~${d.a}`;
+      return pk === triplePk;
+    });
+    tripleLink?.querySelector(".strand").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await sleep(300);
+    ok("expanded strand click opens the pair inspector", !!document.querySelector(".inspector"));
+    ok("pair inspector still lists all 3 streams", document.querySelectorAll(".strand-card").length === 3);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(200);
+
+    // flow focus in Expand mode: overlays sit on the hops' OWN curves
+    document.querySelector('[data-dd="Flow"]')._ddSet(flows[0].id);
+    await sleep(400);
+    ok("expand + flow lights only the 2 hop strands", lit() === 2);
+    ok("expand + flow draws 2 hop overlays", document.querySelectorAll("path.flow-overlay").length === 2);
+    ok("expand + flow shows stage chips 1 and 2",
+      [...document.querySelectorAll("g.stage text")].map((t) => t.textContent).sort().join(",") === "1,2");
+    document.querySelector('[data-dd="Flow"]')._ddSet("");
+    await sleep(300);
+
+    // back to Bundle restores the aggregated view
+    modeToggles()[2].querySelectorAll("button")[0].click(); // Bundle
+    await sleep(500);
+    ok("bundle restores 5 aggregated edges", document.querySelectorAll("g.link").length === 5);
+    ok("bundle restores count badge 3", document.querySelector("g.badge text")?.textContent === "3");
+
+    // ---- per-project display prefs (Project panel) ----
+    document.querySelector(".topbar .proj-name").click();
+    await sleep(200);
+    ok("project panel opens from the project name", !!document.querySelector(".project-drawer"));
+    ok("project panel has the arc-spacing slider", !!document.querySelector(".fan-spacing input[type=range]"));
+    // set Expand + a custom arc spacing via the panel controls (live preview)
+    document.querySelector(".project-drawer .mode-toggle").querySelectorAll("button")[1].click(); // Expand
+    const slider = document.querySelector(".fan-spacing input[type=range]");
+    slider.value = "50";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    await sleep(800); // debounce (500ms) + PUT
+    let disp = await (await fetch("/api/projects/Demo/display")).json();
+    ok("display prefs persisted (expand + fan_spacing=50)", disp.expand === true && disp.fan_spacing === 50);
+    // close via the ✕ and confirm the drawer unmounts
+    document.querySelector(".project-drawer-head .btn").click();
+    await sleep(200);
+    ok("project panel closes", !document.querySelector(".project-drawer"));
+    // Esc also closes: reopen, then Esc
+    document.querySelector(".topbar .proj-name").click();
+    await sleep(150);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(200);
+    ok("Esc closes the project panel", !document.querySelector(".project-drawer"));
+    // reset to bundle + default spacing so repeated runs stay hermetic
+    document.querySelector(".topbar .proj-name").click();
+    await sleep(150);
+    document.querySelector(".project-drawer .mode-toggle").querySelectorAll("button")[0].click(); // Bundle
+    const sl2 = document.querySelector(".fan-spacing input[type=range]");
+    sl2.value = "34";
+    sl2.dispatchEvent(new Event("input", { bubbles: true }));
+    await sleep(800);
+    document.querySelector(".project-drawer-head .btn").click();
+    await sleep(200);
+    disp = await (await fetch("/api/projects/Demo/display")).json();
+    ok("display prefs reset to defaults", disp.expand === false && disp.fan_spacing === 34);
 
     const pre = document.createElement("pre");
     pre.id = "e2e-results";

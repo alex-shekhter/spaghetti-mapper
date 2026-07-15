@@ -30,6 +30,8 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/projects/{proj}/graph", a.getGraph)
 	mux.HandleFunc("PUT /api/projects/{proj}/layout", a.saveLayout)
+	mux.HandleFunc("GET /api/projects/{proj}/display", a.getDisplay)
+	mux.HandleFunc("PUT /api/projects/{proj}/display", a.saveDisplay)
 	mux.HandleFunc("GET /api/projects/{proj}/export", a.exportProject)
 	mux.HandleFunc("POST /api/projects/import", a.importProject)
 
@@ -205,6 +207,28 @@ func (a *API) saveLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.store.SaveLayout(r.PathValue("proj"), layout); err != nil {
+		a.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) getDisplay(w http.ResponseWriter, r *http.Request) {
+	d, err := a.store.GetDisplay(r.PathValue("proj"))
+	if err != nil {
+		a.writeErr(w, err)
+		return
+	}
+	a.writeJSON(w, http.StatusOK, d)
+}
+
+func (a *API) saveDisplay(w http.ResponseWriter, r *http.Request) {
+	d, err := decode[store.Display](r)
+	if err != nil {
+		a.writeErr(w, err)
+		return
+	}
+	if err := a.store.SaveDisplay(r.PathValue("proj"), d); err != nil {
 		a.writeErr(w, err)
 		return
 	}

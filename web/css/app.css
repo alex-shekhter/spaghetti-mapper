@@ -165,7 +165,7 @@ label.field > span {
 
 /* ================= project workspace ================= */
 
-.workspace { display: flex; flex-direction: column; height: 100%; }
+.workspace { display: flex; flex-direction: column; height: 100%; position: relative; }
 
 .topbar {
   display: flex; align-items: center; gap: 12px;
@@ -181,8 +181,14 @@ label.field > span {
 .topbar .brand-mini:hover { color: var(--ink); }
 .topbar .proj-name {
   font-family: var(--display); font-size: 16px; font-weight: 500;
-  padding-left: 12px; border-left: 1px solid var(--line-strong);
+  padding: 0 8px 0 12px; border-left: 1px solid var(--line-strong);
+  background: transparent; border-left-width: 1px; color: var(--ink);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+  border-radius: var(--r); border-top: 0; border-right: 0; border-bottom: 0;
 }
+.topbar .proj-name:hover { background: var(--raised); }
+.topbar .proj-name.active { background: var(--raised); color: var(--accent); }
+.topbar .proj-name .proj-caret { font-size: 10px; color: var(--ink-3); }
 .topbar .spacer { flex: 1; }
 
 .filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -263,6 +269,19 @@ label.field > span {
 }
 
 /* ---- canvas ---- */
+.canvas-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.canvas-toolbar {
+  flex: none; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 6px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.ctool { display: inline-flex; align-items: center; gap: 6px; }
+.ctool-label {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+  white-space: nowrap;
+}
+/* the segmented toggles inside the canvas toolbar can stay compact */
+.canvas-toolbar .mode-toggle button { padding: 3px 10px; font-size: 12px; }
+
 .canvas-wrap { flex: 1; position: relative; min-width: 0; }
 .canvas-wrap svg { display: block; width: 100%; height: 100%; cursor: grab; }
 .canvas-wrap svg:active { cursor: grabbing; }
@@ -355,8 +374,9 @@ label.field > span {
   background: transparent; border: 0; border-radius: 6px;
   color: var(--ink-2); font-size: 12.5px; cursor: pointer;
 }
-.dd-opt:hover { background: var(--raised); color: var(--ink); }
+.dd-opt:hover, .dd-opt.hl { background: var(--raised); color: var(--ink); }
 .dd-opt.selected { color: var(--accent); font-weight: 600; }
+.dd-opt.hl { outline: none; }
 .dd-check { width: 12px; flex: none; color: var(--accent); }
 .dd.editable { display: flex; gap: 4px; }
 .dd.editable .dd-input { flex: 1; min-width: 0; padding: 6px 10px; font-size: inherit; }
@@ -367,6 +387,12 @@ label.field > span {
 .filters .dd-btn { width: auto; }
 .fld-row .dd-btn { padding: 3px 7px; font-size: 12.5px; }
 .fld-row .dd.editable .dd-input { padding: 3px 7px; font-size: 12.5px; }
+
+/* ---- export menu (topbar) ---- */
+.export-dd { position: relative; display: inline-flex; }
+.export-btn { white-space: nowrap; }
+.export-btn .proj-caret { font-size: 10px; color: var(--ink-3); }
+.export-panel { min-width: 168px; }
 
 /* ---- multi-select dropdown (facets: Systems / Status / Timing / Need) ---- */
 .dd-multi .dd-btn.active {
@@ -389,7 +415,7 @@ label.field > span {
   background: transparent; border: 0; border-radius: 6px;
   color: var(--ink-2); font-size: 12.5px; cursor: pointer;
 }
-.dd-multi-opt:hover { background: var(--raised); color: var(--ink); }
+.dd-multi-opt:hover, .dd-multi-opt.hl { background: var(--raised); color: var(--ink); }
 .dd-multi-opt.selected { color: var(--ink); font-weight: 600; }
 .dd-box {
   width: 13px; height: 13px; flex: none;
@@ -596,3 +622,26 @@ body.resizing .canvas-wrap svg { pointer-events: none; } /* keep graph from stea
 @media (max-width: 900px) {
   .resizer--insp { display: none; } /* keep right handle off on small screens; left stays (always visible by spec) */
 }
+
+/* ---- project settings drawer ---- */
+.project-drawer-overlay {
+  position: absolute; inset: 0; z-index: 30;
+  /* transparent: the canvas stays fully visible so the arc-spacing slider
+     previews live. Clicks on the overlay background close the drawer. */
+  background: transparent;
+}
+.project-drawer {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: 340px; max-width: 80vw;
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+  box-shadow: 4px 0 18px rgba(0,0,0,0.25);
+}
+.project-drawer-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+}
+.project-drawer-head h3 { font-family: var(--display); font-weight: 500; font-size: 15px; flex: 1; }
+.fan-spacing { display: flex; align-items: center; gap: 8px; }
+.fan-spacing input[type="range"] { flex: 1; accent-color: var(--accent); }
+.fan-spacing-val { font-size: 12px; color: var(--ink-2); min-width: 38px; text-align: right; }

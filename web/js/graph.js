@@ -31,6 +31,7 @@ const DIM_OPACITY = 0.1;
 const NODE_R = 14;
 const INSET = NODE_R + 4; // strand endpoints stop at the node rim so arrows show
 const LABEL_MIN_ZOOM = 0.8;
+const DEFAULT_FAN_SPACING = 34; // px between parallel strands in Expand mode (overridable per project)
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -57,6 +58,47 @@ function aggregate(data) {
   }
   return [...byPair.values()];
 }
+
+// Expand: one link PER STREAM between a pair, fanned out parallel so each
+// stream is individually visible. Each link keeps the same shape as an
+// aggregated link (single-element `streams`, pair `a`/`b`, dir flags) so the
+// rest of the renderer is unchanged; it only adds `fan` (index within the
+// pair) and `fanCount` for the perpendicular offset. The link `key` is the
+// stream id, so the flow overlay can resolve a hop to its own curve.
+function expandLinks(data) {
+  const sysIds = new Set(data.systems.map((s) => s.id));
+  const countByPair = new Map();
+  for (const st of data.streams) {
+    const sa = st.source.system_id, sb = st.destination.system_id;
+    if (!sysIds.has(sa) || !sysIds.has(sb)) continue;
+    const [a, b] = sa < sb ? [sa, sb] : [sb, sa];
+    const pk = sa === sb ? `loop~${a}` : `${a}~${b}`;
+    countByPair.set(pk, (countByPair.get(pk) ?? 0) + 1);
+  }
+  const idxByPair = new Map();
+  const links = [];
+  for (const st of data.streams) {
+    const sa = st.source.system_id, sb = st.destination.system_id;
+    if (!sysIds.has(sa) || !sysIds.has(sb)) continue;
+    const [a, b] = sa < sb ? [sa, sb] : [sb, sa];
+    const pk = sa === sb ? `loop~${a}` : `${a}~${b}`;
+    const fan = idxByPair.get(pk) ?? 0;
+    idxByPair.set(pk, fan + 1);
+    const bi = st.direction === "bi";
+    links.push({
+      key: st.id, a, b, loop: sa === sb, streams: [st],
+      dirAB: bi || sa === a, dirBA: bi || sa === b,
+      fan, fanCount: countByPair.get(pk),
+    });
+  }
+  return links;
+}
+
+// Perpendicular offset of a strand within its fan (0 in Bundle mode where
+// fan/fanCount are absent). Uses the instance fanSpacing so the gap is
+// adjustable per project.
+const fanOffOf = (d, spacing) =>
+  d.fanCount != null ? (d.fan - (d.fanCount - 1) / 2) * spacing : 0;
 
 export function createGraph(container, { onSelect, onLayoutChange }) {
   const svg = d3.create("svg")
@@ -125,9 +167,13 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
   let V = null; // FilteredView — the one source of "what is visible"
   let filters = { q: "", scope: "all", statuses: new Set(), timings: new Set(), needs: new Set(), systems: new Set(), flow: "" };
   let mode = "dim";
+  let expand = false; // Bundle (aggregated strands) vs Expand (one curve per stream)
+  let fanSpacing = DEFAULT_FAN_SPACING; // px between parallel strands in Expand mode
   let selection = null;
   const posCache = new Map(); // node id -> {x, y, fx, fy}
   let saveTimer = null;
+
+  const fanOff = (d) => fanOffOf(d, fanSpacing);
 
   const size = () => {
     const r = container.getBoundingClientRect();
@@ -155,13 +201,14 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
   function strandPath(d) {
     if (d.loop) {
       const { x, y } = d.source;
-      d._mid = [x, y - 46];
-      return `M${x - 9},${y - 12} a16,16 0 1,1 18,0`;
+      const off = fanOff(d);
+      d._mid = [x + off, y - 46];
+      return `M${x - 9 + off},${y - 12} a16,16 0 1,1 18,0`;
     }
     const x1 = d.source.x, y1 = d.source.y, x2 = d.target.x, y2 = d.target.y;
     const dx = x2 - x1, dy = y2 - y1;
     const dist = Math.hypot(dx, dy) || 1;
-    const bow = Math.min(dist * 0.12, 34);
+    const bow = Math.min(dist * 0.12, 34) + fanOff(d);
     const mx = (x1 + x2) / 2 - (dy / dist) * bow;
     const my = (y1 + y2) / 2 + (dx / dist) * bow;
     // inset endpoints along the curve tangents
@@ -307,7 +354,7 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
     const { w, h } = size();
 
     const hiding = mode === "hide" && active();
-    const allLinks = aggregate(lastData);
+    const allLinks = expand ? expandLinks(lastData) : aggregate(lastData);
 
     const keepLink = (l) => !hiding || linkMatched(l);
     const keepNode = (n) => !hiding || nodeMatched(n);
@@ -324,8 +371,12 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
       };
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
+    // Resolve source/target to node objects for ALL render links (not just
+    // those in the simulation) so parallel links in Expand mode that are
+    // deduped out of the force still follow the nodes they share. forceLink
+    // moves nodes, and every link points at the same node objects.
     links = allLinks.filter((l) => keepLink(l) && byId.has(l.a) && byId.has(l.b))
-      .map((l) => ({ ...l, source: l.a, target: l.b }));
+      .map((l) => ({ ...l, source: byId.get(l.a), target: byId.get(l.b) }));
 
     emptyNote.style.display = nodes.length ? "none" : "flex";
 
@@ -339,7 +390,7 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
       .attr("fill", "none").attr("stroke-linecap", "butt");
     const linkAll = linkEnter.merge(linkSel);
     linkAll.select(".strand")
-      .attr("stroke-width", (d) => widthScale(d.streams.length))
+      .attr("stroke-width", (d) => (expand ? 2.4 : widthScale(d.streams.length)))
       .attr("stroke-dasharray", linkDash);
     linkAll
       .on("click", (e, d) => { e.stopPropagation(); onSelect({ type: "edge", a: d.a, b: d.b }); })
@@ -361,9 +412,10 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
       .attr("font-size", 10).attr("font-weight", 700).attr("fill", COLORS.badgeText);
     badgeEnter.merge(badgeSel).select("text").text((d) => d.streams.length);
 
-    // -- labels for single-stream edges (zoom-gated) --
+    // -- labels: every strand in Expand mode, only single-stream edges in Bundle --
     const trunc = (s) => (s.length > 22 ? s.slice(0, 21) + "…" : s);
-    const labelSel = labelG.selectAll("text.elabel").data(links.filter((l) => l.streams.length === 1), (d) => d.key);
+    const labelData = expand ? links : links.filter((l) => l.streams.length === 1);
+    const labelSel = labelG.selectAll("text.elabel").data(labelData, (d) => d.key);
     labelSel.exit().remove();
     labelSel.enter().append("text").attr("class", "elabel")
       .attr("text-anchor", "middle").attr("pointer-events", "none")
@@ -403,7 +455,18 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
         .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); scheduleLayoutSave(); }));
 
     // -- simulation (self-loops render but exert no force) --
-    const simLinks = links.filter((l) => !l.loop);
+    // One force link per unordered pair, even in Expand mode, so the
+    // simulation's pull between two nodes is independent of how many streams
+    // run between them (otherwise expanded pairs would clump).
+    const simLinks = [];
+    const simSeen = new Set();
+    for (const l of links) {
+      if (l.loop) continue;
+      const pk = l.a < l.b ? `${l.a}~${l.b}` : `${l.b}~${l.a}`;
+      if (simSeen.has(pk)) continue;
+      simSeen.add(pk);
+      simLinks.push(l);
+    }
     if (sim) sim.stop();
     sim = d3.forceSimulation(nodes)
       .force("link", d3.forceLink(simLinks).id((d) => d.id).distance(160).strength(0.5))
@@ -411,14 +474,15 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
       .force("center", d3.forceCenter(w / 2, h / 2))
       .force("collide", d3.forceCollide(42))
       .on("tick", () => {
-        linkAll.select(".hit").attr("d", strandPath);
-        linkAll.select(".strand").attr("d", strandPath);
+        const linkNow = linkG.selectAll("g.link");
+        linkNow.select(".hit").attr("d", strandPath);
+        linkNow.select(".strand").attr("d", strandPath);
         badgeG.selectAll("g.badge").attr("transform", (d) => `translate(${d._mid?.[0] ?? 0},${d._mid?.[1] ?? 0})`);
         positionStages();
         labelG.selectAll("text.elabel")
           .attr("x", (d) => d._mid?.[0] ?? 0)
           .attr("y", (d) => (d._mid?.[1] ?? 0) - 7);
-        nodeAll.attr("transform", (d) => `translate(${d.x},${d.y})`);
+        nodeG.selectAll("g.node").attr("transform", (d) => `translate(${d.x},${d.y})`);
       })
       .on("end", scheduleLayoutSave);
     sim.alpha(nodes.every((n) => posCache.has(n.id)) ? 0.25 : 0.9).restart();
@@ -462,11 +526,13 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
       const st = stById.get(step.stream_id);
       if (!st) continue;
       const a = st.source.system_id, b = st.destination.system_id;
-      const key = a < b ? `${a}~${b}` : `${b}~${a}`;
-      const link = linkByKey.get(key);
+      const pairKey = a < b ? `${a}~${b}` : `${b}~${a}`;
+      // Expand: links are keyed by stream id, so a hop resolves to its OWN
+      // curve. Bundle: links are keyed by the unordered pair.
+      const link = linkByKey.get(expand ? st.id : pairKey);
       if (!link) continue; // dangling or hidden by hide-mode
       const dir = a === link.a ? "ab" : "ba";
-      const dk = key + dir;
+      const dk = pairKey + dir;
       const idx = dirCount.get(dk) ?? 0;
       dirCount.set(dk, idx + 1);
       rows.push({ id: st.id, link, dir, idx, stage: Math.max(1, step.stage || 1) });
@@ -480,12 +546,13 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
     const l = d.link;
     if (l.loop) {
       const { x, y } = l.source;
-      return { path: `M${x - 9},${y - 12} a16,16 0 1,1 18,0`, chip: [x, y - 46] };
+      const off = fanOff(l);
+      return { path: `M${x - 9 + off},${y - 12} a16,16 0 1,1 18,0`, chip: [x + off, y - 46] };
     }
     const x1 = l.source.x, y1 = l.source.y, x2 = l.target.x, y2 = l.target.y;
     const dx = x2 - x1, dy = y2 - y1;
     const dist = Math.hypot(dx, dy) || 1;
-    const bow = Math.min(dist * 0.12, 34) + d.idx * 9;
+    const bow = Math.min(dist * 0.12, 34) + fanOff(l) + d.idx * 9;
     const mx = (x1 + x2) / 2 - (dy / dist) * bow;
     const my = (y1 + y2) / 2 + (dx / dist) * bow;
     const t1 = Math.hypot(mx - x1, my - y1) || 1;
@@ -536,7 +603,13 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
   function paint() {
     flowRowsCache = flowRows();
     const dimming = mode === "dim" && active();
-    linkG.selectAll("g.link")
+    // Geometry is normally advanced by the simulation tick, but set it here
+    // too so strands have a path immediately after a rebuild (and in
+    // headless / no-tick-yet situations) — positions are already current.
+    const linkNow = linkG.selectAll("g.link");
+    linkNow.select(".hit").attr("d", strandPath);
+    linkNow.select(".strand").attr("d", strandPath);
+    linkNow
       .attr("opacity", (d) => (dimming && !linkMatched(d) ? DIM_OPACITY : 1))
       .each(function () { paintLink(d3.select(this)); });
     badgeG.selectAll("g.badge")
@@ -575,6 +648,18 @@ export function createGraph(container, { onSelect, onLayoutChange }) {
     setSelection(sel) {
       selection = sel;
       paint();
+    },
+    setExpand(on) {
+      on = !!on;
+      if (on === expand) return;
+      expand = on;
+      if (lastData) rebuild();
+    },
+    setFanSpacing(n) {
+      n = Math.max(12, Math.min(80, +n || DEFAULT_FAN_SPACING));
+      if (n === fanSpacing) return;
+      fanSpacing = n;
+      if (lastData) paint();
     },
     exportSVG(name) {
       const { w, h } = size();
