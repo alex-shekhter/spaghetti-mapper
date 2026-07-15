@@ -6,7 +6,7 @@ import { Dropdown, MultiDropdown, placePanel } from "./ui.js";
 
 const van = window.van;
 const {
-  a, button, dd, div, dl, dt, form, h1, h3, h4, h5,
+  a, button, div, form, h1, h3, h4, h5,
   input, label, p, span,
 } = van.tags;
 
@@ -940,36 +940,168 @@ export function Workspace(proj, { go }) {
   };
 
   // ---- inspector ----
+  // A stream card is partitioned into regions instead of one flat kv list:
+  // a clickable header (with a collapse toggle), a one-line summary, then a
+  // two-column Source → Destination endpoint block where each entity groups
+  // its own fields (so entity→field ownership is unambiguous), a responsive
+  // contract grid (timing/api/format) that reflows as the drawer widens, and
+  // business-need chips. Density is controlled at three levels so big streams
+  // stay scannable: whole-card collapse, per-entity collapse, and a field-list
+  // cap with a "+N more" reveal. All three state sets are closure-level and
+  // keyed by stable ids, so they survive the reactive re-renders the inspector
+  // does when the drawer is resized or filters change; `cardBump` drives those
+  // re-renders. The header + summary sit in a sticky bar so the stream's
+  // identity stays visible while you scroll a long field list.
+  const collapsedCards = new Set();
+  const collapsedEntities = new Set();
+  const expandedFields = new Set();
+  const cardBump = van.state(0);
+  const FLD_CAP = 6;
+  const toggleSet = (set, key) => { if (set.has(key)) set.delete(key); else set.add(key); };
+  // Enter / Space on a role=button header toggles it via click().
+  const onActivate = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } };
+
+  const sysOf = (id) => (data.val?.systems ?? []).find((s) => s.id === id);
+  // Resolve an endpoint's entities from the catalog, splitting known from
+  // deleted (ids referenced by the stream but no longer in any system).
+  const entGroups = (ep) => {
+    const sys = sysOf(ep.system_id);
+    const ids = ep.entity_ids ?? [];
+    const ents = (sys?.entities ?? []).filter((e) => ids.includes(e.id));
+    const known = new Set((sys?.entities ?? []).map((e) => e.id));
+    const missing = ids.filter((id) => !known.has(id));
+    return { sys, ents, missing };
+  };
+  // Fields an endpoint carries for a given entity, per fields_mode. Returns
+  // null when the mode is "unknown" (fields not documented).
+  const epFields = (ep, ent) => {
+    if (ep.fields_mode === "list") return (ent.fields ?? []).filter((f) => (ep.field_ids ?? []).includes(f.id));
+    if (ep.fields_mode === "all") return ent.fields ?? [];
+    return null;
+  };
+  const epCounts = (ep) => {
+    const { ents } = entGroups(ep);
+    const entN = (ep.entity_ids ?? []).length;
+    let fldN = 0;
+    if (ep.fields_mode === "list") fldN = (ep.field_ids ?? []).length;
+    else if (ep.fields_mode === "all") fldN = ents.reduce((n, e) => n + (e.fields ?? []).length, 0);
+    return { entN, fldN, mode: ep.fields_mode };
+  };
+  // Compact "3 ent · all 5 fld" style summary used in the always-visible line.
+  const epSummary = (ep) => {
+    const { entN, fldN, mode } = epCounts(ep);
+    const fldStr = mode === "all" ? `all ${fldN}` : mode === "unknown" || mode == null ? "?" : String(fldN);
+    return `${entN} ent · ${fldStr} fld`;
+  };
+  const kv = (k, v) => div({ class: "sc-kv" }, span({ class: "sc-kv-k" }, k), span({ class: "sc-kv-v" }, v || "—"));
+
   const streamCard = (st, V, stage = null) => {
-    const epLine = (ep) => {
-      const ents = (ep.entity_ids ?? []).map((id) => V.entName(id));
-      return ents.length ? ents.join(", ") : "—";
-    };
-    const fldLine = (ep) => {
-      if (ep.fields_mode === "list") {
-        const names = (ep.field_ids ?? []).map((id) => V.fldName(id));
-        return names.length ? `${names.length}: ${names.join(", ")}` : "—";
-      }
-      return ep.fields_mode || "—";
-    };
+    cardBump.val; // re-run on collapse toggles
+    const collapsed = collapsedCards.has(st.id);
+    const arrow = st.direction === "bi" ? "⇄" : "→";
     const needs = needNames(st.biz_need_ids);
+    const toggle = (ev) => { ev.stopPropagation(); toggleSet(collapsedCards, st.id); cardBump.val++; };
+    const entToggle = (key) => (ev) => { ev.stopPropagation(); toggleSet(collapsedEntities, key); cardBump.val++; };
+    const fldToggle = (key) => (ev) => { ev.stopPropagation(); toggleSet(expandedFields, key); cardBump.val++; };
+
+    const fieldRow = (f) =>
+      div({ class: "sc-field" },
+        span({ class: "sc-fname" }, f.name),
+        f.type ? span({ class: "sc-ftype" }, f.type) : null);
+
+    // `side` is "src" / "dst" so entity-collapse keys are stable and distinct
+    // per endpoint of the same stream.
+    const entRow = (ep, e, side) => {
+      const fields = epFields(ep, e);
+      const total = (e.fields ?? []).length;
+      const badge = ep.fields_mode === "list" ? `${fields ? fields.length : 0}/${total}`
+        : ep.fields_mode === "all" ? `all ${total}` : "unknown";
+      const key = `${st.id}:${side}:${e.id}`;
+      const entCollapsed = collapsedEntities.has(key);
+      const body = fields == null
+        ? div({ class: "sc-empty" }, "fields not documented")
+        : total === 0
+          ? div({ class: "sc-empty" }, "no fields catalogued")
+          : (() => {
+              const all = fields;
+              const expanded = expandedFields.has(key);
+              const shown = expanded ? all : all.slice(0, FLD_CAP);
+              const hidden = all.length - FLD_CAP;
+              return [
+                div({ class: "sc-fields" }, shown.map(fieldRow)),
+                all.length > FLD_CAP
+                  ? button({ class: "sc-more", onclick: fldToggle(key) },
+                      expanded ? "show less" : `+${hidden} more`)
+                  : null,
+              ];
+            })();
+      return div({ class: "sc-ent" },
+        div({ class: "sc-ent-head", onclick: entToggle(key), role: "button", tabindex: "0", onkeydown: onActivate },
+          span({ class: "sc-chev" + (entCollapsed ? "" : " open") }, "▸"),
+          span({ class: "sc-ent-name" }, e.name),
+          provChip(e),
+          span({ class: `sc-ent-badge${ep.fields_mode === "all" ? " all" : ""}` }, badge),
+        ),
+        entCollapsed ? null : body,
+      );
+    };
+
+    const epColumn = (ep, label, side) => {
+      const { sys, ents, missing } = entGroups(ep);
+      const sysNm = sys?.name ?? "(deleted system)";
+      return div({ class: "sc-ep" },
+        div({ class: "sc-ep-head" },
+          span({ class: "sc-ep-sys", title: sysNm }, sysNm),
+          span({ class: "sc-ep-count" }, label),
+        ),
+        div({ class: "sc-ep-body" },
+          (ents.length || missing.length)
+            ? [
+                ents.map((e) => entRow(ep, e, side)),
+                missing.length
+                  ? missing.map((id) => div({ class: "sc-ent" },
+                      div({ class: "sc-ent-head" },
+                        span({ class: "sc-ent-name" }, V.entName(id)),
+                        span({ class: "sc-ent-badge" }, "deleted"))))
+                  : null,
+              ]
+            : div({ class: "sc-empty" },
+                ep.fields_mode === "unknown" ? "no entities documented" : "no entities selected")),
+      );
+    };
+
     return div({ class: "strand-card" },
-      h4(stage != null ? span({ class: "stage-chip", title: "Stage in the focused flow" }, String(stage)) : null,
-        st.name, " ", provChip(st)),
-      dl({ class: "kv" },
-        dt("Flow"), dd(`${sysName(st.source.system_id)} ${st.direction === "bi" ? "⇄" : "→"} ${sysName(st.destination.system_id)}`),
-        dt("Status"), dd(st.status || "—"),
-        dt("Timing"), dd(st.timing || "—"),
-        dt("API type"), dd(st.api_type || "—"),
-        dt("Format"), dd(st.data_format || "—"),
-        dt("Needs"), dd(needs.length ? needs.join(", ") : "—"),
-        dt("Src entities"), dd(epLine(st.source)),
-        dt("Src fields"), dd(fldLine(st.source)),
-        dt("Dst entities"), dd(epLine(st.destination)),
-        dt("Dst fields"), dd(fldLine(st.destination)),
+      div({ class: "sc-sticky" },
+        div({ class: "sc-head", onclick: toggle, role: "button", tabindex: "0", onkeydown: onActivate },
+          span({ class: "sc-chev" + (collapsed ? "" : " open") }, "▸"),
+          h4(stage != null ? span({ class: "stage-chip", title: "Stage in the focused flow" }, String(stage)) : null,
+            st.name, " ", provChip(st)),
+          span({ class: `chip ${st.status}` }, st.status || "—"),
+        ),
+        div({ class: "sc-summary" },
+          span(sysName(st.source.system_id)), " ", span({ class: "arrow" }, arrow), " ",
+          span(sysName(st.destination.system_id)), "  ·  ",
+          span(epSummary(st.source)), " ", span({ class: "arrow" }, arrow), " ", span(epSummary(st.destination))),
       ),
-      div({ class: "sc-actions" },
-        button({ class: "btn ghost small", onclick: () => { tab.val = "streams"; editing.val = { kind: "streams", item: st }; } }, "Edit stream"),
+      collapsed ? null : div({ class: "sc-body" },
+        div({ class: "sc-eps" },
+          epColumn(st.source, "source", "src"),
+          div({ class: "sc-arrow" }, arrow),
+          epColumn(st.destination, "destination", "dst"),
+        ),
+        div({ class: "sc-contract" },
+          kv("Timing", st.timing),
+          kv("API type", st.api_type),
+          kv("Format", st.data_format),
+        ),
+        needs.length
+          ? div({ class: "sc-needs" },
+              h5({ class: "insp-h", style: "margin-bottom:3px" }, "Needs"),
+              needs.map((n) => span({ class: "chip" }, n)))
+          : null,
+        div({ class: "sc-actions" },
+          button({ class: "btn ghost small", onclick: (ev) => { ev.stopPropagation(); tab.val = "streams"; editing.val = { kind: "streams", item: st }; } }, "Edit stream"),
+        ),
       ),
     );
   };

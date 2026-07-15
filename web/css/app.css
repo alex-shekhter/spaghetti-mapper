@@ -578,11 +578,94 @@ input.stage-num::-webkit-outer-spin-button { -webkit-appearance: none; }
   border-left: 3px solid var(--accent);
   border-radius: var(--r); padding: 11px 13px; margin-bottom: 10px;
 }
-.strand-card h4 { font-size: 14px; margin-bottom: 6px; }
-.strand-card .kv { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; font-size: 12.5px; }
-.strand-card .kv dt { color: var(--ink-3); }
-.strand-card .kv dd { color: var(--ink); overflow-wrap: anywhere; }
-.strand-card .sc-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+/* sticky bar: header + summary stay pinned to the top of the scrollable
+   inspector-body while you scroll a long field list, so the stream's identity
+   and endpoint counts remain in view. Raised bg + hairline hide content
+   scrolling beneath. */
+.strand-card .sc-sticky {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--raised);
+  margin: -11px -13px 8px; padding: 11px 13px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.strand-card .sc-head {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 4px; cursor: pointer; user-select: none;
+}
+.strand-card .sc-head:hover { color: var(--ink); }
+.strand-card .sc-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.strand-card .sc-chev {
+  color: var(--ink-3); font-size: 10px; flex: none;
+  transition: transform .12s;
+}
+.strand-card .sc-chev.open { transform: rotate(90deg); }
+.strand-card h4 { font-size: 14px; flex: 1; min-width: 0; margin: 0; }
+
+/* one-line summary — always visible, even when collapsed */
+.strand-card .sc-summary {
+  color: var(--ink-3); font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.strand-card .sc-summary .arrow { color: var(--accent); font-family: var(--mono); padding: 0 2px; }
+
+/* Source → Destination endpoint block — two columns flanking an arrow.
+   Widening the drawer grows both columns instead of stacking vertically. */
+.strand-card .sc-eps {
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  gap: 8px; align-items: start; margin-bottom: 10px;
+}
+.strand-card .sc-arrow {
+  align-self: center; color: var(--accent); font-family: var(--mono);
+  font-size: 15px; padding-top: 14px;
+}
+.strand-card .sc-ep {
+  background: var(--page); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 7px 9px; min-width: 0;
+}
+.strand-card .sc-ep-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 6px; margin-bottom: 4px;
+}
+.strand-card .sc-ep-sys {
+  font-weight: 600; font-size: 12.5px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.strand-card .sc-ep-count { color: var(--ink-3); font-size: 10px; flex: none; text-transform: uppercase; letter-spacing: .06em; }
+.strand-card .sc-ent { border-top: 1px solid var(--line); padding: 5px 0 3px; }
+.strand-card .sc-ent:first-child { border-top: 0; padding-top: 2px; }
+.strand-card .sc-ent-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.strand-card .sc-ent-head:hover { color: var(--accent); }
+.strand-card .sc-ent-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.strand-card .sc-ent-head .sc-chev { font-size: 9px; }
+/* name flexes + ellipses; provChip sits as a sibling flex item so a long
+   entity name can't clip its provenance badge. */
+.strand-card .sc-ent-name { font-size: 12.5px; color: var(--ink-2); font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strand-card .sc-ent-badge {
+  font-size: 10px; color: var(--ink-3); border: 1px solid var(--line-strong);
+  border-radius: 20px; padding: 0 6px; flex: none; white-space: nowrap;
+}
+.strand-card .sc-ent-badge.all { color: var(--accent); border-color: var(--accent); }
+.strand-card .sc-fields { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 3px 11px; }
+.strand-card .sc-field { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.strand-card .sc-fname { color: var(--ink); overflow-wrap: anywhere; }
+.strand-card .sc-ftype { color: var(--ink-3); font-size: 11px; font-family: var(--mono); margin-left: auto; white-space: nowrap; }
+.strand-card .sc-more {
+  display: block; background: none; border: 0; cursor: pointer;
+  color: var(--ink-3); font-size: 11px; padding: 2px 0 0 11px; text-align: left;
+}
+.strand-card .sc-more:hover { color: var(--accent); }
+.strand-card .sc-empty { color: var(--ink-3); font-size: 12px; padding: 3px 0; margin-left: 11px; }
+
+/* contract facts reflow into multiple columns as the drawer widens */
+.strand-card .sc-contract {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 5px 12px; margin-bottom: 8px;
+}
+.strand-card .sc-kv { display: flex; flex-direction: column; gap: 1px; }
+.strand-card .sc-kv-k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.strand-card .sc-kv-v { font-size: 12.5px; color: var(--ink); overflow-wrap: anywhere; }
+.strand-card .sc-needs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.strand-card .sc-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
 
 .flow-line {
   display: flex; align-items: center; gap: 8px; margin: 8px 0;
