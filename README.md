@@ -26,6 +26,41 @@ Flags:
 | `-addr` | `127.0.0.1:8484` | listen address |
 | `-dev` | off | serve assets from `./web` on disk instead of the embedded copy |
 | `-data` | `~/.spaghettimapper` | where project folders live |
+| `-no-auth` | off | disable user identity/auth (open API; for e2e/CI) |
+| `-tls` | `off` | TLS mode: `off` (plain HTTP) \| `self` (self-signed cert) |
+
+## Identity & TLS
+
+The server knows **architects** — humans and AI agents — so every change is
+attributable. On first run the app opens in **setup mode**: the UI shows a
+setup screen to create the first account (an admin). Until then the API is
+open so the setup flow can run. Once a user exists, every `/api` request (the
+SPA and assets always load) needs a login session cookie or an API bearer
+token.
+
+- **Humans** log in with username + password. Sessions are stateless HMAC
+  cookies; the signing key is generated on first run and persisted under
+  `~/.spaghettimapper/auth/` so logins survive restarts.
+- **AI agents** authenticate with an API token (`POST /api/auth/tokens` while
+  logged in). The secret is returned once; only its bcrypt hash is kept. Use
+  it as `Authorization: Bearer <secret>`.
+- The architect id (username or token owner) will become a git commit author
+  and a branch namespace in the upcoming concurrency work.
+
+Identity lives under `-data`, separate from per-project data:
+
+```
+~/.spaghettimapper/
+  auth/users.json   auth/tokens.json   auth/auth.key
+  <project>/  ...   .trash/
+```
+
+TLS is opt-in. `-tls self` mints a self-signed certificate on first run
+(valid for `localhost`, the machine's hostname, `127.0.0.1`, and `::1`) and
+reuses it across restarts; it is cached under `~/.spaghettimapper/tls/`.
+Browsers will warn until you trust it — this is the "for now" tier; a
+mkcert-style local CA and ACME/Let's-Encrypt tiers are planned. Session
+cookies are flagged `Secure` automatically when TLS is on.
 
 ## Concepts
 
@@ -124,6 +159,38 @@ Each project directory holds `project.json` (with `schema_version`),
 Bundle/Expand edge mode and arc spacing). Writes are atomic (temp file + rename) and guarded by a
 `sync.RWMutex`; if you edit from two tabs, last write wins.
 
+User identity, API tokens, and the session signing key live under
+`-data/auth/` (see Identity & TLS), separate from the per-project data.
+
+Every mutation of a project is also recorded as a commit in a per-project
+git repository (initialized automatically inside the project folder, kept out
+of exports). Each commit is authored by the architect who made the change
+(human username or AI agent id), so you get a full, attributable history and
+rollback via plain `git` in the project directory. `.trash/` and temp files
+are gitignored.
+
+When identity is on, each architect works on their **own branch**
+(`refs/heads/architects/<id>`) via git plumbing — no working-tree checkout, so
+one architect's edits never clobber another's. Reads default to the signed-in
+architect's own workspace (so you see your own edits); a **My workspace / Main**
+toggle in the canvas toolbar switches to the canonical map (`?arch=main`). The
+toolbar's History cluster (Undo / Redo / History) browses the line's git
+history with thumbnail previews and restores any past version. Anonymous
+use (`-no-auth`) reads and writes main directly, as before. `GET
+/api/projects/{proj}/architects` lists the active architects with their last
+commit and how far each branch is ahead of / behind main; `DELETE
+/api/projects/{proj}/architects/{id}` aborts (drops) a branch.
+
+**Combining work into main** (`POST /api/projects/{proj}/architects/{id}/merge`)
+is a domain-aware 3-way merge: disjoint edits combine automatically, and when
+both sides changed the same entity the UI asks keep-main / keep-architect per
+conflict. Canvas layout and display prefs are soft — main wins and you get a
+dismissable note, never a blocking conflict. When main hasn't moved since the
+branch split, the combine fast-forwards; otherwise it writes a two-parent
+merge commit. After a successful combine the branch is pruned and references
+across files are reconciled (flow steps to deleted streams, catalog refs to
+deleted entities are scrubbed).
+
 Deletions are soft: deleted items land in the project's `.trash/` folder
 (deleted projects move to `~/.spaghettimapper/.trash/`), recoverable by hand.
 Deleting a system cascades to its streams (all trashed); deleting a business
@@ -138,12 +205,17 @@ catalog items are marked with provenance `imported`.
 REST/JSON under `/api`:
 
 ```
+GET  /api/auth/status      POST /api/auth/setup   POST /api/auth/login
+POST /api/auth/logout      GET  /api/auth/me
+GET  /api/auth/tokens      POST /api/auth/tokens  DELETE /api/auth/tokens/{id}
+
 GET/POST           /api/projects
 GET/PUT/DELETE     /api/projects/{proj}
 GET                /api/projects/{proj}/graph        # everything at once, incl. layout + display
 PUT                /api/projects/{proj}/layout       # canvas node positions
 GET/PUT            /api/projects/{proj}/display      # canvas display prefs (Bundle/Expand, arc spacing)
 GET                /api/projects/{proj}/export       # whole project as one JSON bundle
+GET/POST           /api/projects/{proj}/report       # .xlsx integration register (POST may embed map PNG)
 POST               /api/projects/import?name=NAME    # create project from a bundle
 GET/POST           /api/projects/{proj}/systems      # entity catalog rides on the system
 PUT/DELETE         /api/projects/{proj}/systems/{id}
@@ -167,7 +239,8 @@ aggregating to 5 edges, one 2-hop "Order to warehouse" flow). Import the
 fixture once, then drive the run with headless Chrome:
 
 ```sh
-# 1. import the fixture (any running server)
+# 1. import the fixture (run a test server with auth disabled for e2e)
+./spaghettimapper -addr 127.0.0.1:8484 -no-auth &
 curl -sS -X POST 'http://127.0.0.1:8484/api/projects/import?name=Demo' \
   -H 'Content-Type: application/json' --data-binary @docs/demo.spaghetti.json
 

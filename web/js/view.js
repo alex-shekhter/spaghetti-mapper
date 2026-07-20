@@ -45,6 +45,12 @@ export class FilteredView {
     return this.M.systemMatches(sys, this.filters, this.data.streams);
   }
 
+  // Expanded where-set (systems ∪ cluster members). Null when the where
+  // facet is inactive. Empty Set when only deleted/empty cluster chips.
+  expandedSystems() {
+    return this.M.expandedSystems(this.filters);
+  }
+
   needVisible(n) {
     const q = (this.filters.q ?? "").trim().toLowerCase();
     // a scoped query (systems/fields/…) says nothing about needs
@@ -129,8 +135,10 @@ export class FilteredView {
     // so testing it would make this condition always false.
     const flowOnly = this.focusedFlow &&
       !(this.filters.q ?? "").trim() &&
+      !(this.filters.queries?.length) &&
       !this.filters.statuses?.size && !this.filters.timings?.size &&
-      !this.filters.needs?.size && !this.filters.systems?.size;
+      !this.filters.needs?.size && !this.filters.systems?.size &&
+      !this.filters.clusters?.size;
     return flowOnly
       ? { matched: `In "${this.focusedFlow.name}"`, rest: (n) => `Not in this flow (${n})` }
       : { matched: "Matching the filter", rest: (n) => `Not matching the filter (${n})` };

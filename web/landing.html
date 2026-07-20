@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpaghettiMapper — you inherited spaghetti. Leave behind a map.</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 22 C10 8, 16 30, 22 12 S 30 20, 28 8' fill='none' stroke='%23e6a23c' stroke-width='3' stroke-linecap='round'/></svg>">
+<style>
+  :root {
+    --page:        #10151d;
+    --panel:       #161d28;
+    --raised:      #1c2532;
+    --line:        #2a3646;
+    --line-strong: #3b4a5e;
+    --ink:         #f2f4f7;
+    --ink-2:       #98a2b3;
+    --ink-3:       #667085;
+    --accent:      #e6a23c;
+    --accent-ink:  #10151d;
+    --sys-internal:#3987e5;
+    --sys-external:#d95926;
+    --sys-unknown: #898781;
+    --display: "Futura", "Avenir Next", "Century Gothic", system-ui, sans-serif;
+    --body:    system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:    ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  ::selection { background: #e6a23c33; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---- hero ---- */
+
+  .hero {
+    position: relative;
+    min-height: 92vh;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hero > .wrap { width: 100%; min-width: 0; }
+  .hero-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+      #10151df2 0%, #10151dd9 34%, #10151d80 58%, #10151d26 78%, transparent 100%);
+    pointer-events: none;
+  }
+  .hero-content {
+    position: relative;
+    padding: 96px 0;
+    max-width: 600px;
+  }
+  .hero h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(30px, 4.2vw, 46px);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin: 18px 0 20px;
+  }
+  .hero h1 span { display: block; }
+  .hero h1 .map-line { color: var(--accent); }
+  .hero-sub {
+    color: var(--ink-2);
+    font-size: 17px;
+    max-width: 46ch;
+    margin-bottom: 28px;
+  }
+  .hero-sub strong { color: var(--ink); font-weight: 600; }
+
+  .cmd {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.7;
+    background: #0b0f15;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: inline-block;
+    min-width: 340px;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .cmd .p { color: var(--ink-3); user-select: none; }
+  .cmd .c { color: var(--ink-3); }
+  .cmd .a { color: var(--accent); }
+
+  .hero-actions {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .replay {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: color .12s, border-color .12s;
+  }
+  .replay:hover { color: var(--ink); border-color: var(--ink-3); }
+  .hero-actions a { font-size: 14px; }
+  .hero-actions a.cta {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: 999px;
+    padding: 7px 16px;
+    text-decoration: none;
+  }
+  .hero-actions a.cta:hover { filter: brightness(1.06); text-decoration: none; }
+
+  /* ---- sections ---- */
+
+  section { padding: 88px 0; border-bottom: 1px solid var(--line); }
+
+  .sec-head {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(26px, 3.2vw, 36px);
+    line-height: 1.15;
+    margin: 12px 0 10px;
+    max-width: 22ch;
+  }
+  .sec-lede { color: var(--ink-2); max-width: 62ch; }
+
+  /* vocabulary cards */
+  .vocab-grid {
+    margin-top: 40px;
+    display: grid;
+    /* min 260px → at most 3 cols in the 1080 wrap, so 5 cards wrap 3+2 (never a lone full-width fifth). */
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .vocab-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 20px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .vocab-card h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+  }
+  .vocab-card p { color: var(--ink-2); font-size: 14.5px; flex: 1; }
+  .vocab-glyph { height: 26px; }
+  .spec {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+    overflow-wrap: anywhere;
+  }
+  .spec b { color: var(--ink-2); font-weight: 500; }
+
+  /* local-first */
+  .split {
+    margin-top: 36px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+  }
+  .split .prose p { color: var(--ink-2); margin-bottom: 14px; max-width: 52ch; }
+  .split .prose p strong { color: var(--ink); font-weight: 600; }
+
+  .tree {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.85;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .tree .d { color: var(--ink-2); }
+  .tree .f { color: var(--ink); }
+  .tree .m { color: var(--ink-3); }
+  .tree .hl { color: var(--accent); }
+
+  /* tri-state */
+  .tri { text-align: left; }
+  .tri-mark {
+    font-family: var(--mono);
+    font-size: clamp(34px, 5vw, 56px);
+    color: var(--ink);
+    margin: 10px 0 16px;
+  }
+  .tri-mark .ne { color: var(--accent); }
+  .tri p { color: var(--ink-2); max-width: 62ch; margin-bottom: 14px; }
+  .tri p strong { color: var(--ink); font-weight: 600; }
+
+  .json {
+    margin-top: 26px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.8;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px;
+    white-space: pre;
+    overflow-x: auto;
+    max-width: 640px;
+  }
+  .json .k { color: var(--sys-internal); }
+  .json .s { color: var(--ink); }
+  .json .v { color: var(--sys-external); }
+  .json .note { color: var(--accent); }
+  .json .dim { color: var(--ink-3); }
+
+  .tri p.coverage {
+    margin-top: 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-3);
+    max-width: none;
+  }
+  .coverage b { color: var(--accent); font-weight: 500; }
+
+  /* footer */
+  footer { padding: 80px 0 90px; }
+  footer .cmd { margin-top: 24px; }
+  .foot-line {
+    margin-top: 34px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  @media (max-width: 780px) {
+    .hero { min-height: 86vh; }
+    .hero-content { padding: 72px 0; }
+    .hero-scrim {
+      background: linear-gradient(180deg,
+        #10151dd9 0%, #10151db3 55%, #10151de6 100%);
+    }
+    .hero svg { opacity: .4; }
+    .cmd { min-width: 0; width: 100%; }
+    section { padding: 64px 0; }
+    .split { grid-template-columns: 1fr; gap: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <svg id="tangle" viewBox="0 0 1200 640" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <!-- LP-2 / RF-2: CORE COMMERCE plate under storefront/orders/billing (mapped-state constants). First child = under edges/nodes. Path precomputed: convex hull expanded pad 38 + closed Catmull-Rom α 0.8 (3 non-collinear → standard hull, no ghosts). -->
+    <g id="cluster-hull" opacity="0" style="transition: opacity 300ms linear">
+      <path d="M888.2,144.6C847.9,101.5,642.9,124.8,625.3,154.4C603.6,190.8,839.8,410.9,878.5,383.2C907.6,362.4,925.5,184.5,888.2,144.6Z"
+        fill="#3fae94" fill-opacity=".07" stroke="#3fae94" stroke-opacity=".45" stroke-width="1.5"/>
+      <text x="888.2" y="134.6" text-anchor="middle"
+        font-family="ui-monospace, SF Mono, Menlo, monospace"
+        font-size="9.5" letter-spacing="1.5" fill="#3fae94" fill-opacity=".9">CORE COMMERCE</text>
+    </g>
+    <g id="edges"></g>
+    <g id="nodes"></g>
+    <g id="labels"></g>
+  </svg>
+  <div class="hero-scrim"></div>
+  <div class="wrap">
+    <div class="hero-content">
+      <p class="eyebrow">one Go binary · no database · runs on 127.0.0.1</p>
+      <h1><span>You inherited spaghetti.</span><span class="map-line">Leave behind a map.</span></h1>
+      <p class="hero-sub"><strong>SpaghettiMapper</strong> is a local-first map room
+        for software architects: document every system, stream, and flow in your
+        landscape — and keep the whole map as a folder of JSON you can read,
+        diff, and commit.</p>
+      <div class="cmd"><span class="p">$</span> go build -o spaghettimapper .
+<span class="p">$</span> ./spaghettimapper   <span class="c"># serves http://127.0.0.1:8484</span></div>
+      <div class="hero-actions">
+        <button class="replay" id="replay" type="button">↺ Replay the untangle</button>
+        <a class="cta" id="open-map" href="/">Open the map room →</a>
+        <a href="#vocabulary">What it maps ↓</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="vocabulary">
+  <div class="wrap">
+    <p class="eyebrow">What it maps</p>
+    <h2 class="sec-head">Five words, and the whole landscape fits in them.</h2>
+    <p class="sec-lede">SpaghettiMapper's vocabulary is deliberately small. Every map is systems joined by streams, walked by flows, justified by needs, gathered into clusters — nothing else to learn, nothing to misfile.</p>
+    <div class="vocab-grid">
+      <div class="vocab-card">
+        <svg class="vocab-glyph" viewBox="0 0 90 26" aria-hidden="true">
+          <circle cx="13" cy="13" r="7" fill="#161d28" stroke="#3987e5" stroke-width="2"/>
+          <circle cx="45" cy="13" r="7" fill="#161d28" stroke="#d95926" stroke-width="2"/>
+          <circle cx="77" cy="13" r="7" fill="#161d28" stroke="#898781" stroke-width="2" stroke-dasharray="3 3"/>
+        </svg>
+        <h3>System</h3>
+        <p>A node in the map — yours, someone else's, or the one nobody will
+          claim. Each system owns a catalog of its entities and fields.</p>
+        <div class="spec">kind: <b>internal</b> | <b>external</b> | <b>unknown</b></div>
+      </div>
+      <div class="vocab-card">
+        <svg class="vocab-glyph" viewBox="0 0 90 26" aria-hidden="true">
+          <path d="M8 13 H74" stroke="#98a2b3" stroke-width="2"/>
+          <path d="M70 8 L78 13 L70 18" fill="none" stroke="#98a2b3" stroke-width="2"/>
+        </svg>
+        <h3>Integration stream</h3>
+        <p>Data moving between two systems, with the facts that matter at
+          2&nbsp;a.m.: timing, format, direction, and whether it actually exists yet.</p>
+        <div class="spec">timing: <b>scheduled</b> · format: <b>CSV</b> · direction: <b>uni</b> · status: <b>implemented</b></div>
+      </div>
+      <div class="vocab-card">
+        <svg class="vocab-glyph" viewBox="0 0 90 26" aria-hidden="true">
+          <path d="M8 13 H30 M38 13 H60 M68 13 H82" stroke="#e6a23c" stroke-width="2"/>
+          <circle cx="34" cy="13" r="3" fill="#e6a23c"/>
+          <circle cx="64" cy="13" r="3" fill="#e6a23c"/>
+        </svg>
+        <h3>Flow</h3>
+        <p>An end-to-end journey through the landscape: ordered steps through
+          streams, stage by stage, from the click to the shipped box.</p>
+        <div class="spec">steps: <b>storefront → orders → erp → 3pl</b></div>
+      </div>
+      <div class="vocab-card">
+        <svg class="vocab-glyph" viewBox="0 0 90 26" aria-hidden="true">
+          <rect x="8" y="5" width="52" height="16" rx="8" fill="none" stroke="#e6a23c" stroke-width="1.5"/>
+          <circle cx="18" cy="13" r="2.5" fill="#e6a23c"/>
+        </svg>
+        <h3>Business need</h3>
+        <p>The reason a stream exists. A stream can serve several. When nobody
+          can name even one — that's not a gap in the tool, that's a finding.</p>
+        <div class="spec">serves: <b>Order Fulfillment</b></div>
+      </div>
+      <div class="vocab-card">
+        <svg class="vocab-glyph" viewBox="0 0 90 26" aria-hidden="true">
+          <path d="M12 18 C14 6, 28 4, 40 8 S 68 6, 78 16 S 70 24, 45 22 S 18 26, 12 18 Z"
+            fill="#3fae94" fill-opacity=".07" stroke="#3fae94" stroke-width="1.5"/>
+          <circle cx="20" cy="13" r="2.5" fill="#3fae94"/>
+          <circle cx="45" cy="10" r="2.5" fill="#3fae94"/>
+          <circle cx="68" cy="16" r="2.5" fill="#3fae94"/>
+        </svg>
+        <h3>Cluster</h3>
+        <p>A named group of systems — a domain, an estate, an island.
+          Clusters sit under the tangle as quiet colored plates, carry business
+          needs of their own, and filter the map at the coarsest grain.</p>
+        <div class="spec">Payments · <b>5 systems</b> · <b>3 needs</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Local-first</p>
+    <h2 class="sec-head">Your map lives in a folder, not in a tenant.</h2>
+    <div class="split">
+      <div class="prose">
+        <p>One binary, no database, nothing phoning home. Every project is a
+          directory of <strong>human-readable JSON</strong> — open it in your
+          editor, grep it, put it in git, review the diff like any other
+          change to your architecture.</p>
+        <p>The server knows its <strong>architects</strong> — humans log in,
+          AI agents present API tokens — so every edit to the map is
+          attributable. When the map says the ERP feed is
+          <em>scheduled, nightly, CSV</em>, you can see who wrote that down.</p>
+        <p>Every change is saved automatically as a version you can preview and
+          restore — undo reaches all the way back. Each architect edits their own
+          copy of the map and merges into the shared Main when ready.</p>
+        <p>Delete a project and it moves to <span class="hl" style="font-family:var(--mono); font-size:13px; color:var(--accent)">.trash/</span>,
+          because a map of your integrations is not a thing you want to lose
+          to a misclick.</p>
+      </div>
+      <div class="tree" aria-label="Data directory layout"><span class="d">~/.spaghettimapper/</span>
+  <span class="d">acme-commerce/</span>
+    <span class="f">project.json</span>
+    <span class="f">systems.json   streams.json</span>
+    <span class="f">needs.json     flows.json</span>
+    <span class="f">clusters.json  layout.json</span>
+    <span class="f">display.json</span>
+  <span class="d">auth/</span><span class="f">users.json  tokens.json</span>  <span class="m">← who drew what</span>
+  <span class="d">.trash/</span>                        <span class="m">← quiet deletes</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap tri">
+    <p class="eyebrow">Honest data</p>
+    <div class="tri-mark">absent <span class="ne">≠</span> false</div>
+    <p>Field properties are <strong>tri-state</strong>: a field nobody documented
+      is a gap, not a fact. SpaghettiMapper never fills silence with defaults —
+      so its analysis can tell you what your landscape <em>is</em>, and
+      separately, what nobody has written down yet. The Analysis panel turns that honesty into findings — fields that move
+      with no business need attached are candidates to cut, or to document.</p>
+    <div class="json"><span class="dim">{</span> <span class="k">"name"</span><span class="dim">:</span> <span class="s">"customer_email"</span><span class="dim">,</span> <span class="k">"type"</span><span class="dim">:</span> <span class="s">"string"</span><span class="dim">,</span> <span class="k">"unique"</span><span class="dim">:</span> <span class="v">true</span> <span class="dim">}</span>
+<span class="dim">{</span> <span class="k">"name"</span><span class="dim">:</span> <span class="s">"legacy_ref"</span> <span class="dim">}</span>                <span class="note">← undocumented, not false</span></div>
+    <p class="coverage">catalog coverage: <b>6/14 fields typed</b> — the map tells you where to dig next</p>
+    <p class="coverage">unjustified data in motion: <b>3 fields</b> — they move between systems, and nobody has written down why</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="eyebrow">Quick start</p>
+    <h2 class="sec-head" style="max-width: 30ch">The map takes an afternoon. The spaghetti took years.</h2>
+    <div class="cmd"><span class="p">$</span> go build -o spaghettimapper .
+<span class="p">$</span> ./spaghettimapper   <span class="c"># open http://127.0.0.1:8484</span></div>
+    <p class="foot-line">spaghettimapper — go · vanjs · d3 — built for architects who read JSON</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var svg = document.getElementById('tangle');
+  var gEdges = document.getElementById('edges');
+  var gNodes = document.getElementById('nodes');
+  var gLabels = document.getElementById('labels');
+  var NS = 'http://www.w3.org/2000/svg';
+
+  var COLOR = { internal: '#3987e5', external: '#d95926', unknown: '#898781' };
+
+  // mapped layout: three layers on the right half, clear of the hero copy
+  var systems = [
+    { id: 'storefront', label: 'Storefront',  kind: 'internal', mx: 660,  my: 170 },
+    { id: 'auth',       label: 'Auth',        kind: 'internal', mx: 660,  my: 350 },
+    { id: 'legacy',     label: 'Legacy SOAP', kind: 'unknown',  mx: 660,  my: 530 },
+    { id: 'orders',     label: 'Orders API',  kind: 'internal', mx: 860,  my: 170 },
+    { id: 'billing',    label: 'Billing',     kind: 'internal', mx: 860,  my: 350 },
+    { id: 'lake',       label: 'Data Lake',   kind: 'internal', mx: 860,  my: 530 },
+    { id: 'erp',        label: 'ERP',         kind: 'external', mx: 1060, my: 170 },
+    { id: 'tpl',        label: '3PL',         kind: 'external', mx: 1060, my: 350 },
+    { id: 'tax',        label: 'Tax Svc',     kind: 'external', mx: 1060, my: 530 }
+  ];
+
+  var streams = [
+    ['storefront', 'orders',  true],   // true → part of the amber flow
+    ['orders',     'erp',     true],
+    ['erp',        'tpl',     true],
+    ['storefront', 'auth'],
+    ['auth',       'orders'],
+    ['orders',     'billing'],
+    ['billing',    'tax'],
+    ['legacy',     'erp'],
+    ['legacy',     'billing'],
+    ['orders',     'lake'],
+    ['billing',    'lake'],
+    ['erp',        'lake'],
+    ['storefront', 'billing']
+  ];
+
+  // deterministic chaos
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  var rnd = mulberry32(7);
+
+  var byId = {};
+  systems.forEach(function (s) {
+    s.tx = 240 + rnd() * 720;   // tangled position
+    s.ty = 100 + rnd() * 440;
+    byId[s.id] = s;
+  });
+
+  streams.forEach(function (e) {
+    // tangled control points: wild absolute offsets that force crossings and loops
+    e[3] = { x: 150 + rnd() * 900, y: rnd() * 640 };
+    e[4] = { x: 150 + rnd() * 900, y: rnd() * 640 };
+  });
+
+  var edgeEls = streams.map(function (e) {
+    var p = document.createElementNS(NS, 'path');
+    p.setAttribute('fill', 'none');
+    if (e[2]) {
+      p.setAttribute('stroke', '#e6a23c');
+      p.setAttribute('stroke-width', '2');
+    } else {
+      p.setAttribute('stroke', '#4a5a70');
+      p.setAttribute('stroke-width', '1.5');
+    }
+    gEdges.appendChild(p);
+    return p;
+  });
+
+  var nodeEls = systems.map(function (s) {
+    var c = document.createElementNS(NS, 'circle');
+    c.setAttribute('r', '7');
+    c.setAttribute('fill', '#161d28');
+    c.setAttribute('stroke', COLOR[s.kind]);
+    c.setAttribute('stroke-width', '2');
+    if (s.kind === 'unknown') c.setAttribute('stroke-dasharray', '3 3');
+    gNodes.appendChild(c);
+    return c;
+  });
+
+  var labelEls = systems.map(function (s) {
+    var t = document.createElementNS(NS, 'text');
+    t.setAttribute('font-family', 'ui-monospace, SF Mono, Menlo, monospace');
+    t.setAttribute('font-size', '11');
+    t.setAttribute('fill', '#98a2b3');
+    t.setAttribute('text-anchor', 'middle');
+    t.textContent = s.label;
+    gLabels.appendChild(t);
+    return t;
+  });
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+  function render(t) {
+    var et = ease(t);
+    systems.forEach(function (s, i) {
+      s.x = lerp(s.tx, s.mx, et);
+      s.y = lerp(s.ty, s.my, et);
+      nodeEls[i].setAttribute('cx', s.x);
+      nodeEls[i].setAttribute('cy', s.y);
+      labelEls[i].setAttribute('x', s.x);
+      labelEls[i].setAttribute('y', s.y - 15);
+      labelEls[i].setAttribute('opacity', Math.max(0, (et - 0.62) / 0.38).toFixed(3));
+    });
+    streams.forEach(function (e, i) {
+      var a = byId[e[0]], b = byId[e[1]];
+      // mapped control points: calm horizontal S-curves between layers;
+      // same-column edges bow outward instead of collapsing to a line
+      var dx = b.mx - a.mx;
+      var bow = Math.abs(dx) < 60 ? 70 : 0;
+      var mcx1 = a.mx + dx * 0.45 + bow, mcy1 = a.my;
+      var mcx2 = b.mx - dx * 0.45 + bow, mcy2 = b.my;
+      var c1x = lerp(e[3].x, mcx1, et), c1y = lerp(e[3].y, mcy1, et);
+      var c2x = lerp(e[4].x, mcx2, et), c2y = lerp(e[4].y, mcy2, et);
+      edgeEls[i].setAttribute('d',
+        'M' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) +
+        ' C' + c1x.toFixed(1) + ' ' + c1y.toFixed(1) +
+        ', ' + c2x.toFixed(1) + ' ' + c2y.toFixed(1) +
+        ', ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1));
+      edgeEls[i].setAttribute('stroke-opacity',
+        e[2] ? (0.4 + 0.6 * et).toFixed(3) : (0.75 - 0.3 * et).toFixed(3));
+    });
+  }
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var state = 0;            // 0 = tangled, 1 = mapped
+  var animId = null;
+  var hullG = document.getElementById('cluster-hull');
+
+  // LP-2: fade CORE COMMERCE plate in after untangle settles (immediate under reduced-motion).
+  function setHullVisible(on) {
+    if (!hullG) return;
+    if (reduced) {
+      hullG.style.transition = 'none';
+      hullG.setAttribute('opacity', on ? '1' : '0');
+      return;
+    }
+    hullG.style.transition = 'opacity 300ms linear';
+    hullG.setAttribute('opacity', on ? '1' : '0');
+  }
+
+  function animateTo(target, duration, onDone) {
+    if (animId) cancelAnimationFrame(animId);
+    if (reduced) {
+      state = target;
+      render(state);
+      if (onDone) onDone();
+      return;
+    }
+    var from = state, start = null;
+    function step(ts) {
+      if (start === null) start = ts;
+      var p = Math.min(1, (ts - start) / duration);
+      state = from + (target - from) * p;
+      render(state);
+      if (p < 1) animId = requestAnimationFrame(step);
+      else {
+        animId = null;
+        if (onDone) onDone();
+      }
+    }
+    animId = requestAnimationFrame(step);
+  }
+
+  render(reduced ? 1 : 0);
+  if (!reduced) {
+    setTimeout(function () { animateTo(1, 1900, function () { setHullVisible(true); }); }, 900);
+  } else {
+    state = 1;
+    setHullVisible(true);
+  }
+
+  document.getElementById('replay').addEventListener('click', function () {
+    setHullVisible(false);
+    if (reduced) {
+      state = state === 1 ? 0 : 1;
+      render(state);
+      if (state === 1) setHullVisible(true);
+      return;
+    }
+    state = 0;
+    render(0);
+    setTimeout(function () { animateTo(1, 1900, function () { setHullVisible(true); }); }, 350);
+  });
+
+  // Auth-aware CTA: same-origin status is public; keep static label on failure
+  // so the page still works when served from a static host (file://, GH Pages).
+  var cta = document.getElementById('open-map');
+  if (cta) {
+    fetch('/api/auth/status').then(function (r) { return r.json(); }).then(function (s) {
+      if (s.needs_setup) cta.textContent = 'Set up your map room →';
+      else if (s.user) cta.textContent = 'Back to your map →';
+      else if (s.auth_enabled !== false) cta.textContent = 'Sign in →';
+    }).catch(function () { /* keep static label */ });
+  }
+})();
+</script>
+</body>
+</html>

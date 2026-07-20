@@ -12,6 +12,15 @@
 const van = window.van;
 const { button, div, input, span } = van.tags;
 
+// Count + word with a real plural (DR-6). Prefer this over "field(s)".
+//   plural(1, "field") → "1 field"
+//   plural(4, "field") → "4 fields"
+//   plural(1, "entity", "entities") → "1 entity"
+export function plural(n, word, pluralWord) {
+  const p = pluralWord ?? `${word}s`;
+  return `${n} ${n === 1 ? word : p}`;
+}
+
 // Place a `position: fixed` dropdown panel adjacent to its anchor (`root`)
 // without ever being clipped by the viewport. The panel flips above/below
 // depending on which side has room, and its height is clamped to the
@@ -69,7 +78,7 @@ export function placePanel(panel, root, maxHeight = 240) {
 // flush (VanJS batches updates on a 0ms timeout, which runs after the rAF
 // of the current turn). Double-rAF lands on the following turn, after the
 // options have actually been inserted, so panel.scrollHeight is meaningful.
-const afterPaint = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+export const afterPaint = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
 
 export function Dropdown({ state, value = "", options, onchange, editable = false, title = "", cls = "", placeholder = "—" }) {
   const cur = state ?? van.state(value);
